@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estadísticas de Guardia - SIG</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+    <style> body { font-family: 'Inter', sans-serif; } </style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+    <div id="loginOverlay" class="fixed inset-0 bg-gray-900 bg-opacity-95 z-50 flex items-center justify-center p-4">
+        <div class="bg-white p-8 rounded-lg shadow-2xl text-center w-full max-w-sm">
+            <h2 class="text-2xl font-bold mb-4">Acceso a Estadísticas</h2>
+            <form id="loginForm">
+                <input type="text" id="userInput" class="w-full px-4 py-3 border rounded-lg mb-4 text-center" placeholder="Usuario (ej: stats)">
+                <input type="password" id="passwordInput" class="w-full px-4 py-3 border rounded-lg mb-4 text-center" placeholder="••••••••">
+                <div class="flex items-center justify-center mb-4">
+                    <input id="rememberMe" type="checkbox" class="h-4 w-4 text-indigo-600 rounded">
+                    <label for="rememberMe" class="ml-2 block text-sm text-gray-900">Recordar en este dispositivo</label>
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg">Ingresar</button>
+                <p id="loginError" class="text-red-500 text-sm mt-2 h-4"></p>
+            </form>
+        </div>
+    </div>
+
+    <div id="appContent" class="hidden opacity-0 transition-opacity duration-500 container mx-auto p-8">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-bold text-slate-800">Estadísticas de la Guardia</h1>
+            <p class="text-gray-600">Datos de pacientes atendidos en el día de la fecha.</p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8 text-center">
+            <div class="bg-white p-6 rounded-lg shadow-md"><h3 class="text-lg font-semibold text-gray-500">Total Atendidos Hoy</h3><p id="totalAttended" class="text-5xl font-bold text-blue-600">0</p></div>
+            <div class="bg-white p-6 rounded-lg shadow-md"><h3 class="text-lg font-semibold text-gray-500">Espera Promedio (Hoy)</h3><p id="avgWaitTime" class="text-5xl font-bold text-green-600">0 <span class="text-3xl">min</span></p></div>
+            <div class="bg-white p-6 rounded-lg shadow-md flex items-center justify-center"><button id="refreshButton" class="bg-gray-800 text-white font-bold py-4 px-6 rounded-lg text-lg hover:bg-gray-700">Actualizar Datos</button></div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <h3 class="text-2xl font-bold text-center mb-4">Distribución por Nivel de Triage (Hoy)</h3>
+                <div class="max-w-md mx-auto"><canvas id="triageChart"></canvas></div>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <h3 class="text-2xl font-bold text-center mb-4">Distribución por Destino (Hoy)</h3>
+                <div class="max-w-md mx-auto"><canvas id="dispositionChart"></canvas></div>
+            </div>
+        </div>
+
+        <div class="container mx-auto mt-8 bg-white rounded-2xl shadow-2xl p-8">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-3xl font-bold">Pacientes Atendidos esta Semana</h2>
+                <div class="flex gap-2">
+                    <button id="exportXLS" class="bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Exportar XLS</button>
+                    <button id="exportPDF" class="bg-red-600 text-white font-bold py-2 px-4 rounded-lg">Exportar PDF</button>
+                </div>
+            </div>
+            <div class="h-96 overflow-y-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">#</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ingreso</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Espera (min)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Destino</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Atendido por</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendedHistoryList" class="bg-white divide-y divide-gray-200"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const socket = io(); 
+            // --- DOM Elements ---
+            const loginOverlay = document.getElementById('loginOverlay'), loginForm = document.getElementById('loginForm'), userInput = document.getElementById('userInput'), passwordInput = document.getElementById('passwordInput'), rememberMeCheck = document.getElementById('rememberMe'), loginError = document.getElementById('loginError'), appContent = document.getElementById('appContent'), totalAttendedEl = document.getElementById('totalAttended'), avgWaitTimeEl = document.getElementById('avgWaitTime'), refreshButton = document.getElementById('refreshButton'), triageChartCtx = document.getElementById('triageChart').getContext('2d'), dispositionChartCtx = document.getElementById('dispositionChart').getContext('2d'), attendedHistoryList = document.getElementById('attendedHistoryList'), exportXLSBtn = document.getElementById('exportXLS'), exportPDFBtn = document.getElementById('exportPDF');
+            
+            // --- Chart variables ---
+            let triageChart, dispositionChart;
+            let attendedHistoryData = [];
+
+            // --- Authentication ---
+            const token = localStorage.getItem('triageAuthToken');
+            if (token) socket.emit('authenticate_token', token);
+
+            loginForm.addEventListener('submit', (e) => { e.preventDefault(); socket.emit('authenticate_user', { user: userInput.value, pass: passwordInput.value }); });
+            
+            socket.on('auth_success', (data) => {
+                if (data.role === 'estadisticas') {
+                    if (rememberMeCheck.checked) localStorage.setItem('triageAuthToken', data.token);
+                    loginOverlay.style.display = 'none';
+                    appContent.classList.remove('hidden', 'opacity-0');
+                    socket.emit('get_stats');
+                    socket.emit('get_attended_history');
+                } else {
+                    loginError.textContent = 'Acceso no autorizado para este rol.';
+                }
+            });
+
+            socket.on('auth_fail', () => { localStorage.removeItem('triageAuthToken'); loginError.textContent = 'Usuario o contraseña incorrectos.'; });
+            
+            // --- Event Listeners ---
+            refreshButton.addEventListener('click', () => { socket.emit('get_stats'); socket.emit('get_attended_history'); });
+
+            // --- Socket Data Handlers ---
+            socket.on('stats_update', (stats) => {
+                totalAttendedEl.textContent = stats.totalAttendedToday;
+                avgWaitTimeEl.innerHTML = `${stats.avgWaitTime} <span class="text-3xl">min</span>`;
+                updateTriageChart(stats.byTriage);
+                updateDispositionChart(stats.byDisposition); // <-- NUEVO
+            });
+
+            socket.on('attended_history_update', (history) => {
+                attendedHistoryData = history;
+                attendedHistoryList.innerHTML = '';
+                history.forEach((p, index) => {
+                    const row = document.createElement('tr');
+                    const arrivalTime = new Date(p.horaLlegada).toLocaleString('es-ES');
+                    const waitTime = Math.round((p.attendedAt - p.horaLlegada) / 60000);
+                    row.innerHTML = `<td class="px-6 py-4">${index + 1}</td><td class="px-6 py-4">${p.nombre}</td><td class="px-6 py-4">${arrivalTime}</td><td class="px-6 py-4">${waitTime}</td><td class="px-6 py-4">${p.disposition || 'N/A'}</td><td class="px-6 py-4">${p.attendedBy || 'N/A'}</td>`;
+                    attendedHistoryList.appendChild(row);
+                });
+            });
+
+            // --- Chart Update Functions ---
+            function updateTriageChart(data) {
+                const labels = ['Rojo', 'Naranja', 'Amarillo', 'Verde', 'Azul'];
+                const chartData = [ data.rojo || 0, data.naranja || 0, data.amarillo || 0, data.verde || 0, data.azul || 0 ];
+                const backgroundColors = ['#ef4444', '#f97316', '#f59e0b', '#10b981', '#3b82f6'];
+                if (triageChart) {
+                    triageChart.data.datasets[0].data = chartData;
+                    triageChart.update();
+                } else {
+                    triageChart = new Chart(triageChartCtx, { type: 'doughnut', data: { labels, datasets: [{ data: chartData, backgroundColor: backgroundColors, borderWidth: 1 }] }, options: { responsive: true, plugins: { legend: { position: 'top' } } } });
+                }
+            }
+
+            function updateDispositionChart(data) { // <-- NUEVA FUNCIÓN
+                const labels = ['Alta', 'Internado', 'Trasladado'];
+                const chartData = [ data.Alta || 0, data.Internado || 0, data.Trasladado || 0 ];
+                const backgroundColors = ['#22c55e', '#3b82f6', '#f97316'];
+                 if (dispositionChart) {
+                    dispositionChart.data.datasets[0].data = chartData;
+                    dispositionChart.update();
+                } else {
+                    dispositionChart = new Chart(dispositionChartCtx, { type: 'pie', data: { labels, datasets: [{ data: chartData, backgroundColor: backgroundColors, borderWidth: 1 }] }, options: { responsive: true, plugins: { legend: { position: 'top' } } } });
+                }
+            }
+
+            // --- Export Functions ---
+            exportXLSBtn.addEventListener('click', () => {
+                const dataToExport = attendedHistoryData.map((p, i) => ({ '#': i + 1, Nombre: p.nombre, DNI: p.dni, 'Hora de Ingreso': new Date(p.horaLlegada).toLocaleString('es-ES'), 'Tiempo de Espera (min)': Math.round((p.attendedAt - p.horaLlegada) / 60000), 'Destino': p.disposition, 'Atendido Por': p.attendedBy, 'Notas de Triage': p.notas }));
+                const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, "Historial Semanal");
+                XLSX.writeFile(workbook, "Reporte_Guardia_Semanal.xlsx");
+            });
+
+            exportPDFBtn.addEventListener('click', () => {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                doc.autoTable({
+                    head: [['#', 'Nombre', 'Ingreso', 'Espera (min)', 'Destino', 'Médico']],
+                    body: attendedHistoryData.map((p, i) => [i + 1, p.nombre, new Date(p.horaLlegada).toLocaleString('es-ES'), Math.round((p.attendedAt - p.horaLlegada) / 60000), p.disposition, p.attendedBy])
+                });
+                doc.save('Reporte_Guardia_Semanal.pdf');
+            });
+        });
+    </script>
+</body>
+</html>

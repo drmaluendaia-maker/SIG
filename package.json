@@ -1,0 +1,19 @@
+{
+  "name": "sig-servidor",
+  "version": "3.0.0",
+  "description": "Servidor para el Sistema Integrado de Guardia.",
+  "main": "servidor.js",
+  "scripts": {
+    "start": "node servidor.js"
+  },
+  "author": "Dr. Xavier Maluenda y Gemini",
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5",
+    "open": "^8.4.2",
+    "sqlite3": "^5.1.7"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

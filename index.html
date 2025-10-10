@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIG - Sistema Integrado de Guardia</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+        .card {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+        }
+        .card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 15px 20px -5px rgba(0, 0, 0, 0.1), 0 8px 8px -5px rgba(0, 0, 0, 0.04);
+        }
+        .card i {
+            transition: transform 0.3s ease;
+        }
+        .card:hover i {
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen bg-slate-100">
+    <div class="container mx-auto p-8 text-center">
+        <header class="mb-12">
+            <h1 class="text-6xl font-black text-slate-800">Sistema Integrado de Guardia</h1>
+            <p class="text-2xl text-slate-500 mt-2">Hospital Dr. Arturo U. Illia</p>
+        </header>
+        <main class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            
+            <a href="/registro.html" target="_blank" class="card bg-white rounded-2xl shadow-lg p-8 flex flex-col items-center justify-center">
+                <i class="fas fa-clipboard-list text-5xl mb-4 text-blue-500"></i>
+                <h2 class="text-xl font-bold text-slate-700">Registro de Pacientes</h2>
+                <p class="text-slate-500 mt-2 text-sm">Triage, carga de datos y signos vitales.</p>
+            </a>
+
+            <a href="/enfermeria_guardia.html" target="_blank" class="card bg-white rounded-2xl shadow-lg p-8 flex flex-col items-center justify-center">
+                <i class="fas fa-notes-medical text-5xl mb-4 text-purple-500"></i>
+                <h2 class="text-xl font-bold text-slate-700">Enfermería de Guardia</h2>
+                <p class="text-slate-500 mt-2 text-sm">Pacientes en observación y cumplimiento de indicaciones.</p>
+            </a>
+
+            <a href="/medico.html" target="_blank" class="card bg-white rounded-2xl shadow-lg p-8 flex flex-col items-center justify-center">
+                <i class="fas fa-user-doctor text-5xl mb-4 text-green-500"></i>
+                <h2 class="text-xl font-bold text-slate-700">Vista Médica</h2>
+                <p class="text-slate-500 mt-2 text-sm">Atención, diagnóstico e indicaciones.</p>
+            </a>
+            
+            <a href="/tv.html" target="_blank" class="card bg-white rounded-2xl shadow-lg p-8 flex flex-col items-center justify-center">
+                <i class="fas fa-tv text-5xl mb-4 text-indigo-500"></i>
+                <h2 class="text-xl font-bold text-slate-700">Sala de Espera (TV)</h2>
+                <p class="text-slate-500 mt-2 text-sm">Visualización de turnos para pacientes.</p>
+            </a>
+
+            <a href="/estadisticas.html" target="_blank" class="card bg-white rounded-2xl shadow-lg p-8 flex flex-col items-center justify-center">
+                <i class="fas fa-chart-pie text-5xl mb-4 text-amber-500"></i>
+                <h2 class="text-xl font-bold text-slate-700">Estadísticas</h2>
+                <p class="text-slate-500 mt-2 text-sm">Métricas y análisis de rendimiento de la guardia.</p>
+            </a>
+
+            <a href="/admin.html" target="_blank" class="card bg-white rounded-2xl shadow-lg p-8 flex flex-col items-center justify-center">
+                <i class="fas fa-cogs text-5xl mb-4 text-red-500"></i>
+                <h2 class="text-xl font-bold text-slate-700">Administración</h2>
+                <p class="text-slate-500 mt-2 text-sm">Gestión de usuarios y configuración del sistema.</p>
+            </a>
+
+        </main>
+        <footer class="mt-12">
+            <p class="text-slate-400">Desarrollado por Dr. Xavier Maluenda y Gemini - Versión 3.0</p>
+        </footer>
+    </div>
+</body>
+</html>

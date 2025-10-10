@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sala de Espera - SIG</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; overflow: hidden; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; translateY(0); } }
+        .patient-card, .consultorio-card, .observation-card { animation: slideIn 0.4s ease-out forwards; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.8; } }
+        .emergency-view {
+            background: linear-gradient(-45deg, #b91c1c, #dc2626, #7f1d1d, #ef4444);
+            background-size: 400% 400%; animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes call-animation { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+        .call-view { animation: call-animation 1.5s ease-in-out infinite; background-color: #1d4ed8; }
+        .status-ausente { opacity: 0.5; }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <div id="callView" class="hidden call-view fixed inset-0 z-50 flex flex-col items-center justify-center text-white p-8">
+        <p id="callPatientName" class="text-8xl font-black drop-shadow-xl text-center"></p>
+        <p id="callConsultorio" class="text-6xl font-bold mt-4 drop-shadow-lg text-center"></p>
+    </div>
+
+    <div id="mainView" class="flex flex-col min-h-screen">
+        <header class="p-8 text-center border-b border-slate-700">
+            <h1 class="text-5xl md:text-6xl font-black tracking-tight">Guardia Hospital Dr. A. Illia</h1>
+        </header>
+        
+        <main class="flex-grow grid grid-cols-1 lg:grid-cols-3 gap-8 p-8">
+            <div class="flex flex-col">
+                <h2 class="text-3xl font-bold text-slate-300 mb-4 text-center">EN ESPERA</h2>
+                <div id="patientList" class="w-full space-y-4">
+                     <p id="noPatientsMessage" class="text-center text-slate-500 text-2xl mt-20">No hay pacientes en espera.</p>
+                </div>
+            </div>
+            <div class="flex flex-col border-l border-r border-slate-700 px-8">
+                <h2 class="text-3xl font-bold text-purple-400 mb-4 text-center">EN OBSERVACIÓN</h2>
+                <div id="observationList" class="w-full space-y-4">
+                    <p id="noObservationMessage" class="text-center text-slate-500 text-2xl mt-20">No hay pacientes en observación.</p>
+                </div>
+            </div>
+            <div class="flex flex-col">
+                <h2 class="text-3xl font-bold text-slate-300 mb-4 text-center">EN CONSULTORIO</h2>
+                <div id="consultoriosList" class="w-full space-y-4">
+                     <p id="noConsultoriosMessage" class="text-center text-slate-500 text-2xl mt-20">Consultorios libres.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="emergencyView" class="hidden emergency-view fixed inset-0 w-screen h-screen flex flex-col items-center justify-center text-center p-8">
+        <h2 class="text-7xl font-extrabold text-white drop-shadow-lg">MÉDICOS EN EMERGENCIA</h2>
+        <p class="text-4xl font-semibold text-white/80 mt-6 drop-shadow-md">Aguarde, por favor. <br>Pronto continuaremos llamando.</p>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const socket = io();
+            const mainView = document.getElementById('mainView');
+            const emergencyView = document.getElementById('emergencyView');
+            const callView = document.getElementById('callView');
+            const callPatientName = document.getElementById('callPatientName');
+            const callConsultorio = document.getElementById('callConsultorio');
+            const patientListContainer = document.getElementById('patientList');
+            const noPatientsMessage = document.getElementById('noPatientsMessage');
+            const observationListContainer = document.getElementById('observationList');
+            const noObservationMessage = document.getElementById('noObservationMessage');
+            const consultoriosListContainer = document.getElementById('consultoriosList');
+            const noConsultoriosMessage = document.getElementById('noConsultoriosMessage');
+
+            // --- Sonido de llamada ---
+            let synth;
+            document.body.addEventListener('click', () => {
+                if (!synth && typeof Tone !== 'undefined') {
+                    Tone.start();
+                    synth = new Tone.Synth().toDestination();
+                }
+            }, { once: true });
+
+            const playCallSound = () => {
+                if(synth) {
+                    const now = Tone.now();
+                    synth.triggerAttackRelease("C5", "0.3s", now);
+                    synth.triggerAttackRelease("G5", "0.3s", now + 0.4);
+                }
+            };
+
+            // --- Listeners de Socket.io ---
+            socket.on('update_patient_list', (patients) => {
+                const waitingPatients = patients.filter(p => p.status === 'en_espera' || p.status === 'ausente');
+                const observationPatients = patients.filter(p => p.status === 'pre_internacion');
+                const attendingPatients = patients.filter(p => p.status === 'atendiendo');
+                renderWaitingList(waitingPatients);
+                renderObservationList(observationPatients);
+                renderAttendingList(attendingPatients);
+            });
+
+            socket.on('emergency_status_update', (isEmergency) => {
+                mainView.classList.toggle('hidden', isEmergency);
+                emergencyView.classList.toggle('hidden', !isEmergency);
+            });
+
+            socket.on('update_call', (callInfo) => {
+                callView.classList.toggle('hidden', !callInfo);
+                if (callInfo) {
+                    playCallSound();
+                    callPatientName.textContent = callInfo.nombre;
+                    callConsultorio.textContent = `Consultorio ${callInfo.consultorio}`;
+                }
+            });
+
+            // --- Funciones de Renderizado ---
+            function renderWaitingList(patients) {
+                const patientsToDisplay = patients.slice(0, 10);
+                patientListContainer.innerHTML = '';
+                noPatientsMessage.style.display = patientsToDisplay.length > 0 ? 'none' : 'block';
+
+                patientsToDisplay.forEach((patient, index) => {
+                    const card = document.createElement('div');
+                    let cardClasses = 'patient-card bg-slate-800 rounded-xl shadow-lg p-5 flex items-center space-x-6';
+                    if (patient.status === 'ausente') cardClasses += ' status-ausente';
+                    
+                    card.className = cardClasses;
+                    const colorMap = { rojo: '#ef4444', naranja: '#f97316', amarillo: '#f59e0b', verde: '#10b981', azul: '#3b82f6' };
+                    card.style.borderLeft = `8px solid ${colorMap[patient.nivelTriage]}`;
+
+                    card.innerHTML = `
+                        <span class="text-4xl font-black text-slate-600 w-12 text-center">${index + 1}</span>
+                        <div class="flex-grow"><p class="text-4xl font-bold truncate">${patient.nombre}</p></div>`;
+                    patientListContainer.appendChild(card);
+                });
+            }
+
+            function renderObservationList(patients) {
+                observationListContainer.innerHTML = '';
+                noObservationMessage.style.display = patients.length > 0 ? 'none' : 'block';
+                patients.forEach(patient => {
+                    const card = document.createElement('div');
+                    card.className = 'observation-card bg-purple-900/50 rounded-xl shadow-lg p-5';
+                    card.innerHTML = `<p class="text-2xl font-semibold mt-1">${patient.nombre}</p>`;
+                    observationListContainer.appendChild(card);
+                });
+            }
+
+            function renderAttendingList(patients) {
+                consultoriosListContainer.innerHTML = '';
+                noConsultoriosMessage.style.display = patients.length > 0 ? 'none' : 'block';
+
+                patients.forEach(patient => {
+                    const card = document.createElement('div');
+                    card.className = 'consultorio-card bg-slate-800 rounded-xl shadow-lg p-5';
+                    card.innerHTML = `
+                        <p class="text-3xl font-bold text-blue-400">Consultorio ${patient.consultorio}</p>
+                        <p class="text-2xl font-semibold mt-1">${patient.nombre}</p>`;
+                    consultoriosListContainer.appendChild(card);
+                });
+            }
+        });
+    </script>
+</body>
+</html>
