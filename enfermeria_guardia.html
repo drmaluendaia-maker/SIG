@@ -41,7 +41,7 @@
         <main class="container mx-auto p-8">
             <h2 class="text-3xl font-bold text-center mb-6 text-purple-700">Pacientes en Observación</h2>
             <div id="preAdmissionList" class="space-y-6 max-w-4xl mx-auto">
-                <p id="noPatientsMessage" class="text-center text-gray-500 text-xl mt-12">No hay pacientes en observación en este momento.</p>
+                <p id="noPatientsMessage" class="text-center text-gray-500 text-xl mt-12">No hay pacientes en observación.</p>
             </div>
         </main>
     </div>
@@ -75,8 +75,8 @@
                 patientCard.className = 'bg-white p-6 rounded-lg shadow-md';
                 const formatNote = (note) => `<div class="text-xs border-b pb-1"><p>${note.text}</p><p class="text-right text-gray-500 font-semibold">- ${note.user} (${new Date(note.timestamp).toLocaleString('es-ES')})</p></div>`;
                 
-                let nurseEvolutionsHTML = '';
-                if (patient.nurseEvolutions && patient.nurseEvolutions.length > 0) { nurseEvolutionsHTML = `<h4 class="text-sm font-bold mt-3 mb-1 text-gray-700">Evoluciones:</h4><div class="space-y-2 max-h-40 overflow-y-auto bg-gray-50 p-2 rounded">${patient.nurseEvolutions.map(formatNote).join('')}</div>`; }
+                let logHTML = (patient.log || []).filter(l => l.type === 'Nota de Enfermería').map(logEntry => formatNote({ text: logEntry.details, user: logEntry.user, timestamp: logEntry.timestamp })).join('');
+                if(logHTML) { logHTML = `<h4 class="text-sm font-bold mt-3 mb-1 text-gray-700">Evoluciones:</h4><div class="space-y-2 max-h-40 overflow-y-auto bg-gray-50 p-2 rounded">${logHTML}</div>`; }
                 
                 let indicationsHTML = '<div class="mt-4"><h4 class="text-sm font-bold mb-2 text-purple-800">Indicaciones Médicas Pendientes:</h4>';
                 const pendingIndications = patient.indications?.filter(i => i.status === 'pendiente');
@@ -95,8 +95,7 @@
                 patientCard.innerHTML = `
                     <div class="flex items-start justify-between"><div class="flex items-start gap-4"><div class="w-3 h-3 rounded-full dot-${patient.nivelTriage} mt-2 flex-shrink-0"></div><div class="flex-grow"><div class="flex items-center gap-3 flex-wrap"><p class="font-bold text-2xl">${patient.nombre}</p><span class="status-pre_internacion text-xs font-bold uppercase px-2 py-1 rounded-full">En Observación</span></div><p class="text-sm text-gray-500">DNI: ${patient.dni || 'N/A'}</p></div></div></div>
                     ${indicationsHTML}
-                    ${patient.notas ? `<p class="text-sm text-gray-700 mt-3 italic bg-gray-100 p-2 rounded w-full break-words"><b>Nota de Ingreso (Triage):</b> ${patient.notas}</p>` : ''}
-                    ${nurseEvolutionsHTML}
+                    ${logHTML}
                     <div class="mt-4 border-t pt-3"><form class="add-note-form flex gap-2" data-id="${patient.id}"><textarea class="w-full text-sm border rounded p-2" rows="2" placeholder="Añadir práctica o evolución..."></textarea><button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 text-sm font-bold">Guardar</button></form></div>
                 `;
                 return patientCard;
@@ -112,7 +111,7 @@
             
             socket.on('update_patient_list', renderPreAdmissionList);
             
-            appContent.addEventListener('click', (e) => { if (e.target.classList.contains('complete-indication-btn')) { socket.emit('update_indication_status', { patientId: parseInt(e.target.dataset.patientId), indicationId: e.target.dataset.indicationId, newStatus: 'realizada' }); } });
+            appContent.addEventListener('click', (e) => { if (e.target.classList.contains('complete-indication-btn')) { socket.emit('update_indication_status', { patientId: parseInt(e.target.dataset.patientId), indicationId: e.target.dataset.indicationId }); } });
             appContent.addEventListener('submit', (e) => { e.preventDefault(); if (e.target.classList.contains('add-note-form')) { const form = e.target; const textarea = form.querySelector('textarea'); const noteText = textarea.value.trim(); if (noteText) { socket.emit('add_nurse_evolution', { id: parseInt(form.dataset.id), note: noteText }); textarea.value = ''; } } });
             
             // --- PDF Generation ---
@@ -124,26 +123,21 @@
                 doc.text(`Profesional: ${shiftData.user.fullName}`, 14, 30);
                 doc.text(`Inicio de Guardia: ${new Date(shiftData.startTime).toLocaleString('es-ES')}`, 14, 36);
                 doc.text(`Fin de Guardia: ${new Date(shiftData.endTime).toLocaleString('es-ES')}`, 14, 42);
-                
-                // Nota: La lógica para saber qué pacientes atendió este rol es más compleja.
-                // Por ahora, el reporte incluirá todos los pacientes que estuvieron en observación durante el turno.
-                // Una mejora futura sería registrar qué enfermero completó indicaciones para cada paciente.
-                const patientsInObservation = shiftData.attendedPatients.filter(p => p.status === 'pre_internacion');
 
-                if (patientsInObservation.length === 0) {
-                    doc.text("No se gestionaron pacientes en observación durante esta guardia.", 14, 55);
-                } else {
-                     doc.autoTable({
-                        startY: 50,
-                        head: [['#', 'Hora Ingreso', 'Nombre', 'DNI', 'Indicaciones Completadas']],
-                        body: patientsInObservation.map((p, i) => [
-                            i + 1,
-                            new Date(p.horaLlegada).toLocaleTimeString('es-ES'),
-                            p.nombre,
-                            p.dni || 'N/A',
-                            p.indications?.filter(ind => ind.status === 'realizada').length || 0
-                        ]),
-                        headStyles: { fillColor: [88, 28, 135] }, // Purple
+                if (shiftData.attendedPatients.length === 0) { doc.text("No se gestionaron pacientes durante esta guardia.", 14, 55); } 
+                else {
+                    shiftData.attendedPatients.forEach((p, index) => {
+                        if (index > 0) doc.addPage();
+                        doc.setFontSize(14); doc.text(`Paciente #${index + 1}: ${p.nombre}`, 14, 20);
+                        const body = (p.log || [])
+                            .filter(entry => entry.type === 'Indicación Cumplida' || entry.type === 'Nota de Enfermería')
+                            .map(entry => [ new Date(entry.timestamp).toLocaleTimeString('es-ES'), entry.type, entry.details ]);
+                        
+                        if(body.length > 0){
+                            doc.autoTable({ startY: 25, head: [['Hora', 'Acción', 'Detalle']], body, headStyles: { fillColor: [88, 28, 135] } });
+                        } else {
+                            doc.text("Sin acciones registradas para este paciente en el turno.", 14, 30);
+                        }
                     });
                 }
                 doc.save(`Reporte_EnfGuardia_${shiftData.user.user}_${new Date().toLocaleDateString('es-ES').replace(/\//g, '-')}.pdf`);
