@@ -6,6 +6,8 @@
     <title>Enfermería de Guardia - SIG</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
         .dot-rojo { background-color: #ef4444; } .dot-naranja { background-color: #f97316; } .dot-amarillo { background-color: #f59e0b; }
@@ -18,27 +20,21 @@
     <div id="loginOverlay" class="fixed inset-0 bg-gray-900 bg-opacity-95 z-50 flex items-center justify-center p-4">
         <div class="bg-white p-8 rounded-lg shadow-2xl text-center w-full max-w-sm">
             <h2 class="text-2xl font-bold mb-4">Acceso Enfermería de Guardia</h2>
-            <form id="loginForm">
-                <input type="text" id="userInput" class="w-full px-4 py-3 border rounded-lg mb-4 text-center" placeholder="Usuario (ej: enfguardia)">
-                <input type="password" id="passwordInput" class="w-full px-4 py-3 border rounded-lg mb-4 text-center" placeholder="••••••••">
-                <div class="flex items-center justify-center mb-4">
-                    <input id="rememberMe" type="checkbox" class="h-4 w-4 text-indigo-600 rounded">
-                    <label for="rememberMe" class="ml-2 block text-sm text-gray-900">Recordar en este dispositivo</label>
-                </div>
-                <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg">Ingresar</button>
-                <p id="loginError" class="text-red-500 text-sm mt-2 h-4"></p>
-            </form>
+            <form id="loginForm"><input type="text" id="userInput" class="w-full px-4 py-3 border rounded-lg mb-4 text-center" placeholder="Usuario"><input type="password" id="passwordInput" class="w-full px-4 py-3 border rounded-lg mb-4 text-center" placeholder="••••••••"><div class="flex items-center justify-center mb-4"><input id="rememberMe" type="checkbox" class="h-4 w-4 text-indigo-600 rounded"><label for="rememberMe" class="ml-2 block text-sm text-gray-900">Recordar</label></div><button type="submit" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg">Ingresar</button><p id="loginError" class="text-red-500 text-sm mt-2 h-4"></p></form>
         </div>
     </div>
 
     <div id="appContent" class="hidden opacity-0 transition-opacity duration-500">
         <header class="bg-white shadow-md">
-            <div class="container mx-auto p-4 flex justify-between items-center">
-                <h1 class="text-2xl font-bold text-gray-700">Módulo de Enfermería de Guardia</h1>
-                <div>
-                    <span id="currentUser" class="text-sm text-gray-600 mr-4"></span>
-                    <button id="logoutBtn" class="text-sm text-gray-600 hover:text-black font-semibold">Cerrar Sesión</button>
+            <div class="container mx-auto p-4 flex justify-between items-center flex-wrap gap-4">
+                <div id="shiftControls" class="flex items-center gap-4">
+                    <button id="startShiftBtn" class="bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Iniciar Guardia</button>
+                    <div id="shiftActiveDisplay" class="hidden flex items-center gap-4">
+                        <span class="text-green-600 font-bold">GUARDIA ACTIVA</span>
+                        <button id="endShiftBtn" class="bg-red-600 text-white font-bold py-2 px-4 rounded-lg">Finalizar y Exportar</button>
+                    </div>
                 </div>
+                <div><span id="currentUser" class="text-sm text-gray-600 mr-4"></span><button id="logoutBtn" class="text-sm text-gray-600 hover:text-black font-semibold">Cerrar Sesión</button></div>
             </div>
         </header>
 
@@ -54,154 +50,104 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const socket = io();
-            // --- Elementos del DOM ---
+            // --- DOM Elements ---
             const loginOverlay = document.getElementById('loginOverlay'), loginForm = document.getElementById('loginForm'), userInput = document.getElementById('userInput'), passwordInput = document.getElementById('passwordInput'), rememberMeCheck = document.getElementById('rememberMe'), loginError = document.getElementById('loginError'), appContent = document.getElementById('appContent'), preAdmissionListContainer = document.getElementById('preAdmissionList'), noPatientsMessage = document.getElementById('noPatientsMessage'), currentUserSpan = document.getElementById('currentUser'), logoutBtn = document.getElementById('logoutBtn');
-            
-            // --- Estado Local ---
-            let currentUser = null;
+            const startShiftBtn = document.getElementById('startShiftBtn'), endShiftBtn = document.getElementById('endShiftBtn'), shiftActiveDisplay = document.getElementById('shiftActiveDisplay');
 
-            // --- Autenticación ---
+            // --- App State ---
+            let currentUser = null, isShiftActive = false;
+
+            // --- Authentication ---
             const token = localStorage.getItem('triageAuthToken');
             if (token) socket.emit('authenticate_token', token);
+            loginForm.addEventListener('submit', (e) => { e.preventDefault(); socket.emit('authenticate_user', { user: userInput.value, pass: passwordInput.value }); });
+            socket.on('auth_success', (userData) => { if (userData.role === 'enfermero_guardia') { if (rememberMeCheck.checked) { localStorage.setItem('triageAuthToken', userData.token); } currentUser = userData; loginOverlay.style.display = 'none'; appContent.classList.remove('hidden', 'opacity-0'); currentUserSpan.textContent = `Usuario: ${userData.fullName}`; } else { loginError.textContent = 'Acceso no autorizado.'; } });
+            socket.on('auth_fail', () => { localStorage.removeItem('triageAuthToken'); loginError.textContent = 'Credenciales incorrectas.'; });
+            logoutBtn.addEventListener('click', () => { if(isShiftActive){ alert("Debe finalizar su guardia antes de cerrar sesión."); return; } localStorage.removeItem('triageAuthToken'); location.reload(); });
+            
+            // --- Shift Management ---
+            startShiftBtn.addEventListener('click', () => { socket.emit('start_shift'); isShiftActive = true; startShiftBtn.classList.add('hidden'); shiftActiveDisplay.classList.remove('hidden'); });
+            endShiftBtn.addEventListener('click', () => { if(!confirm("¿Finalizar guardia? Se generará el reporte de su actividad.")) return; socket.emit('end_shift', (shiftData) => { generateShiftPDF(shiftData); isShiftActive = false; startShiftBtn.classList.remove('hidden'); shiftActiveDisplay.classList.add('hidden'); }); });
 
-            loginForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                socket.emit('authenticate_user', { user: userInput.value, pass: passwordInput.value });
-            });
-
-            socket.on('auth_success', (userData) => {
-                if (userData.role === 'enfermero_guardia') {
-                    if (rememberMeCheck.checked) localStorage.setItem('triageAuthToken', userData.token);
-                    currentUser = userData;
-                    loginOverlay.style.display = 'none';
-                    appContent.classList.remove('hidden', 'opacity-0');
-                    currentUserSpan.textContent = `Usuario: ${userData.fullName}`;
-                } else {
-                    loginError.textContent = 'Acceso no autorizado para este rol.';
-                }
-            });
-
-            socket.on('auth_fail', () => {
-                localStorage.removeItem('triageAuthToken');
-                loginError.textContent = 'Usuario o contraseña incorrectos.';
-            });
-
-            logoutBtn.addEventListener('click', () => {
-                localStorage.removeItem('triageAuthToken');
-                location.reload();
-            });
-
-            // --- Creación de Tarjetas de Paciente ---
+            // --- Patient Card Creation ---
             function createPatientCard(patient) {
                 const patientCard = document.createElement('div');
                 patientCard.className = 'bg-white p-6 rounded-lg shadow-md';
-
-                // Sección de Evoluciones de Enfermería
+                const formatNote = (note) => `<div class="text-xs border-b pb-1"><p>${note.text}</p><p class="text-right text-gray-500 font-semibold">- ${note.user} (${new Date(note.timestamp).toLocaleString('es-ES')})</p></div>`;
+                
                 let nurseEvolutionsHTML = '';
-                if (patient.nurseEvolutions && patient.nurseEvolutions.length > 0) {
-                    nurseEvolutionsHTML += '<h4 class="text-sm font-bold mt-3 mb-1 text-gray-700">Evoluciones de Enfermería:</h4><div class="space-y-2 max-h-40 overflow-y-auto bg-gray-50 p-2 rounded">';
-                    patient.nurseEvolutions.forEach(note => {
-                        const noteTime = new Date(note.timestamp).toLocaleString('es-ES');
-                        nurseEvolutionsHTML += `<div class="text-xs border-b pb-1"><p>${note.text}</p><p class="text-right text-gray-500 font-semibold">- ${note.user} (${noteTime})</p></div>`;
-                    });
-                    nurseEvolutionsHTML += '</div>';
-                }
-
-                // Sección de Indicaciones Médicas
-                let indicationsHTML = '<div class="mt-4">';
-                indicationsHTML += '<h4 class="text-sm font-bold mb-2 text-purple-800">Indicaciones Médicas Pendientes:</h4>';
-                const pendingIndications = patient.indications && patient.indications.filter(i => i.status === 'pendiente');
+                if (patient.nurseEvolutions && patient.nurseEvolutions.length > 0) { nurseEvolutionsHTML = `<h4 class="text-sm font-bold mt-3 mb-1 text-gray-700">Evoluciones:</h4><div class="space-y-2 max-h-40 overflow-y-auto bg-gray-50 p-2 rounded">${patient.nurseEvolutions.map(formatNote).join('')}</div>`; }
+                
+                let indicationsHTML = '<div class="mt-4"><h4 class="text-sm font-bold mb-2 text-purple-800">Indicaciones Médicas Pendientes:</h4>';
+                const pendingIndications = patient.indications?.filter(i => i.status === 'pendiente');
                 if (pendingIndications && pendingIndications.length > 0) {
-                    indicationsHTML += '<div class="space-y-2">';
-                    pendingIndications.forEach(ind => {
-                        indicationsHTML += `<div class="bg-purple-50 p-3 rounded flex justify-between items-center">
-                            <div>
-                                <p class="text-sm">${ind.text}</p>
-                                <p class="text-xs text-purple-800 font-semibold">- Dr/a. ${ind.doctor}</p>
-                            </div>
-                            <button data-patient-id="${patient.id}" data-indication-id="${ind.id}" class="complete-indication-btn bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-3 rounded text-xs">Realizada</button>
-                        </div>`;
-                    });
-                    indicationsHTML += '</div>';
+                    indicationsHTML += `<div class="space-y-2">${pendingIndications.map(ind => `<div class="bg-purple-50 p-3 rounded flex justify-between items-center"><div><p class="text-sm">${ind.text}</p><p class="text-xs text-purple-800 font-semibold">- Dr/a. ${ind.doctor}</p></div><button data-patient-id="${patient.id}" data-indication-id="${ind.id}" class="complete-indication-btn bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-3 rounded text-xs">Realizada</button></div>`).join('')}</div>`;
                 } else {
                     indicationsHTML += '<p class="text-sm text-gray-500">No hay indicaciones pendientes.</p>';
                 }
 
-                const completedIndications = patient.indications && patient.indications.filter(i => i.status === 'realizada');
+                const completedIndications = patient.indications?.filter(i => i.status === 'realizada');
                 if (completedIndications && completedIndications.length > 0) {
-                    indicationsHTML += '<h4 class="text-sm font-bold mt-4 mb-1 text-green-700">Indicaciones Realizadas:</h4><div class="space-y-2">';
-                     completedIndications.forEach(ind => {
-                        indicationsHTML += `<div class="bg-green-50 p-2 rounded text-gray-500">
-                                <p class="text-sm line-through">${ind.text}</p>
-                                <p class="text-xs text-right text-green-800 font-semibold">- Dr/a. ${ind.doctor}</p>
-                            </div>`;
-                    });
-                    indicationsHTML += '</div>';
+                    indicationsHTML += `<h4 class="text-sm font-bold mt-4 mb-1 text-green-700">Indicaciones Realizadas:</h4><div class="space-y-2">${completedIndications.map(ind => `<div class="bg-green-50 p-2 rounded text-gray-500"><p class="text-sm line-through">${ind.text}</p><p class="text-xs text-right text-green-800 font-semibold">- Dr/a. ${ind.doctor}</p></div>`).join('')}</div>`;
                 }
                 indicationsHTML += '</div>';
 
-                // Armado de la tarjeta completa
                 patientCard.innerHTML = `
-                    <div class="flex items-start justify-between">
-                        <div class="flex items-start gap-4">
-                            <div class="w-3 h-3 rounded-full dot-${patient.nivelTriage} mt-2 flex-shrink-0"></div>
-                            <div class="flex-grow">
-                                <div class="flex items-center gap-3 flex-wrap">
-                                    <p class="font-bold text-2xl">${patient.nombre}</p>
-                                    <span class="status-pre_internacion text-xs font-bold uppercase px-2 py-1 rounded-full">En Observación</span>
-                                </div>
-                                <p class="text-sm text-gray-500">DNI: ${patient.dni || 'No especificado'}</p>
-                            </div>
-                        </div>
-                    </div>
+                    <div class="flex items-start justify-between"><div class="flex items-start gap-4"><div class="w-3 h-3 rounded-full dot-${patient.nivelTriage} mt-2 flex-shrink-0"></div><div class="flex-grow"><div class="flex items-center gap-3 flex-wrap"><p class="font-bold text-2xl">${patient.nombre}</p><span class="status-pre_internacion text-xs font-bold uppercase px-2 py-1 rounded-full">En Observación</span></div><p class="text-sm text-gray-500">DNI: ${patient.dni || 'N/A'}</p></div></div></div>
                     ${indicationsHTML}
                     ${patient.notas ? `<p class="text-sm text-gray-700 mt-3 italic bg-gray-100 p-2 rounded w-full break-words"><b>Nota de Ingreso (Triage):</b> ${patient.notas}</p>` : ''}
                     ${nurseEvolutionsHTML}
-                    <div class="mt-4 border-t pt-3">
-                        <form class="add-note-form flex gap-2" data-id="${patient.id}">
-                            <textarea class="w-full text-sm border rounded p-2" rows="2" placeholder="Añadir práctica o evolución de enfermería..."></textarea>
-                            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 text-sm font-bold">Guardar</button>
-                        </form>
-                    </div>
+                    <div class="mt-4 border-t pt-3"><form class="add-note-form flex gap-2" data-id="${patient.id}"><textarea class="w-full text-sm border rounded p-2" rows="2" placeholder="Añadir práctica o evolución..."></textarea><button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 text-sm font-bold">Guardar</button></form></div>
                 `;
                 return patientCard;
             }
 
-            // --- Renderizado de la Lista y Listeners ---
+            // --- Rendering & Event Handlers ---
             function renderPreAdmissionList(allPatients) {
                 const preAdmissionPatients = allPatients.filter(p => p.status === 'pre_internacion');
                 preAdmissionListContainer.innerHTML = '';
-
-                if (preAdmissionPatients.length > 0) {
-                    noPatientsMessage.classList.add('hidden');
-                    preAdmissionPatients.forEach(p => preAdmissionListContainer.appendChild(createPatientCard(p)));
-                } else {
-                    noPatientsMessage.classList.remove('hidden');
-                }
+                noPatientsMessage.classList.toggle('hidden', preAdmissionPatients.length > 0);
+                if (preAdmissionPatients.length > 0) { preAdmissionPatients.forEach(p => preAdmissionListContainer.appendChild(createPatientCard(p))); }
             }
             
             socket.on('update_patient_list', renderPreAdmissionList);
             
-            appContent.addEventListener('click', (e) => {
-                if (e.target.classList.contains('complete-indication-btn')) {
-                    const patientId = parseInt(e.target.dataset.patientId);
-                    const indicationId = e.target.dataset.indicationId;
-                    socket.emit('update_indication_status', { patientId, indicationId, newStatus: 'realizada' });
-                }
-            });
+            appContent.addEventListener('click', (e) => { if (e.target.classList.contains('complete-indication-btn')) { socket.emit('update_indication_status', { patientId: parseInt(e.target.dataset.patientId), indicationId: e.target.dataset.indicationId, newStatus: 'realizada' }); } });
+            appContent.addEventListener('submit', (e) => { e.preventDefault(); if (e.target.classList.contains('add-note-form')) { const form = e.target; const textarea = form.querySelector('textarea'); const noteText = textarea.value.trim(); if (noteText) { socket.emit('add_nurse_evolution', { id: parseInt(form.dataset.id), note: noteText }); textarea.value = ''; } } });
+            
+            // --- PDF Generation ---
+            function generateShiftPDF(shiftData) {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                doc.setFontSize(16); doc.text("Reporte de Guardia - Enfermería de Observación", 14, 22);
+                doc.setFontSize(11);
+                doc.text(`Profesional: ${shiftData.user.fullName}`, 14, 30);
+                doc.text(`Inicio de Guardia: ${new Date(shiftData.startTime).toLocaleString('es-ES')}`, 14, 36);
+                doc.text(`Fin de Guardia: ${new Date(shiftData.endTime).toLocaleString('es-ES')}`, 14, 42);
+                
+                // Nota: La lógica para saber qué pacientes atendió este rol es más compleja.
+                // Por ahora, el reporte incluirá todos los pacientes que estuvieron en observación durante el turno.
+                // Una mejora futura sería registrar qué enfermero completó indicaciones para cada paciente.
+                const patientsInObservation = shiftData.attendedPatients.filter(p => p.status === 'pre_internacion');
 
-            appContent.addEventListener('submit', (e) => {
-                 e.preventDefault();
-                 if (e.target.classList.contains('add-note-form')) {
-                    const form = e.target;
-                    const textarea = form.querySelector('textarea');
-                    const noteText = textarea.value.trim();
-                    if (noteText) {
-                        socket.emit('add_nurse_evolution', { id: parseInt(form.dataset.id), note: noteText });
-                        textarea.value = '';
-                    }
+                if (patientsInObservation.length === 0) {
+                    doc.text("No se gestionaron pacientes en observación durante esta guardia.", 14, 55);
+                } else {
+                     doc.autoTable({
+                        startY: 50,
+                        head: [['#', 'Hora Ingreso', 'Nombre', 'DNI', 'Indicaciones Completadas']],
+                        body: patientsInObservation.map((p, i) => [
+                            i + 1,
+                            new Date(p.horaLlegada).toLocaleTimeString('es-ES'),
+                            p.nombre,
+                            p.dni || 'N/A',
+                            p.indications?.filter(ind => ind.status === 'realizada').length || 0
+                        ]),
+                        headStyles: { fillColor: [88, 28, 135] }, // Purple
+                    });
                 }
-            });
+                doc.save(`Reporte_EnfGuardia_${shiftData.user.user}_${new Date().toLocaleDateString('es-ES').replace(/\//g, '-')}.pdf`);
+            }
         });
     </script>
 </body>
