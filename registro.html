@@ -14,6 +14,7 @@
         .triage-button.selected { transform: scale(1.05); box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.5); }
         .dot-rojo { background-color: #ef4444; } .dot-naranja { background-color: #f97316; } .dot-amarillo { background-color: #f59e0b; }
         .dot-verde { background-color: #10b981; } .dot-azul { background-color: #3b82f6; }
+        .edit-triage-btn { transition: transform 0.2s; } .edit-triage-btn:hover { transform: scale(1.2); }
     </style>
 </head>
 <body class="bg-slate-100 min-h-screen">
@@ -59,7 +60,7 @@
                 </div>
                 <div class="bg-white rounded-2xl shadow-2xl p-8">
                     <h2 class="text-3xl font-bold text-center mb-6">Pacientes Registrados en mi Guardia</h2>
-                    <div id="shiftPatientList" class="space-y-4 h-[40vh] overflow-y-auto pr-2"><p id="noShiftPatientsMessage" class="text-center text-gray-500 mt-8">No has registrado pacientes en esta guardia.</p></div>
+                    <div id="shiftPatientList" class="space-y-2 h-[40vh] overflow-y-auto pr-2"><p id="noShiftPatientsMessage" class="text-center text-gray-500 mt-8">No has registrado pacientes en esta guardia.</p></div>
                 </div>
             </div>
         </div>
@@ -75,7 +76,7 @@
             const shiftPatientList = document.getElementById('shiftPatientList'), noShiftPatientsMessage = document.getElementById('noShiftPatientsMessage');
 
             // --- App State ---
-            let selectedLevel = null, currentUser = null, isShiftActive = false, accumulatedNotes = [];
+            let selectedLevel = null, currentUser = null, isShiftActive = false, accumulatedNotes = [], observationPresets = [], currentShiftPatients = [];
 
             // --- Authentication ---
             const token = localStorage.getItem('triageAuthToken');
@@ -87,7 +88,7 @@
             
             // --- Shift Management ---
             startShiftBtn.addEventListener('click', () => { socket.emit('start_shift'); isShiftActive = true; startShiftBtn.classList.add('hidden'); shiftActiveDisplay.classList.remove('hidden'); });
-            endShiftBtn.addEventListener('click', () => { if(!confirm("¿Finalizar guardia? Se generará el reporte de su actividad.")) return; socket.emit('end_shift', (shiftData) => { generateShiftPDF(shiftData); isShiftActive = false; startShiftBtn.classList.remove('hidden'); shiftActiveDisplay.classList.add('hidden'); }); });
+            endShiftBtn.addEventListener('click', () => { if(!confirm("¿Finalizar guardia? Se generará el reporte de su actividad.")) return; socket.emit('end_shift', (shiftData) => { generateShiftPDF(shiftData); isShiftActive = false; startShiftBtn.classList.remove('hidden'); shiftActiveDisplay.classList.add('hidden'); currentShiftPatients = []; renderShiftHistory(); }); });
 
             // --- Patient List Rendering ---
             function renderPatientList(patients) {
@@ -97,28 +98,47 @@
                     const patientDiv = document.createElement('div');
                     patientDiv.className = 'bg-gray-50 p-4 rounded-lg shadow';
                     let statusBadge = '';
-                    if (patient.status === 'atendiendo') statusBadge = `<span class="bg-blue-500 text-white text-xs font-bold uppercase px-2 py-1 rounded-full">Atendiendo (C${patient.consultorio})</span>`;
+                    if (patient.status === 'atendiendo') statusBadge = `<span class="bg-blue-500 text-white text-xs font-bold uppercase px-2 py-1 rounded-full">Atendiendo</span>`;
                     else if(patient.status === 'pre_internacion') statusBadge = `<span class="bg-purple-500 text-white text-xs font-bold uppercase px-2 py-1 rounded-full">En Observación</span>`;
+                    
+                    const vitalsDisplay = [
+                        patient.vitals.ta ? `TA: ${patient.vitals.ta}` : '',
+                        patient.vitals.fc ? `FC: ${patient.vitals.fc}` : '',
+                        patient.vitals.temp ? `T°: ${patient.vitals.temp}` : '',
+                        patient.vitals.hgt ? `HGT: ${patient.vitals.hgt}` : '',
+                    ].filter(Boolean).join(' | ');
 
-                    // --- NUEVO: Botón de derivar a enfermería ---
                     const sendToNursingBtn = patient.status === 'en_espera' ? `<button data-id="${patient.id}" class="send-to-nursing-btn bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold py-1 px-2 rounded">Solo Enfermería</button>` : '';
 
-                    patientDiv.innerHTML = `<div class="flex items-start justify-between"><div class="flex items-start gap-4"><div class="w-3 h-3 rounded-full dot-${patient.nivelTriage} mt-2 flex-shrink-0"></div><div class="flex-grow"><div class="flex items-center gap-3 flex-wrap"><p class="font-bold text-lg">${patient.nombre}</p>${statusBadge}</div><p class="text-sm text-gray-500">Ingreso: ${new Date(patient.horaLlegada).toLocaleTimeString('es-ES')}</p></div></div><div>${sendToNursingBtn}</div></div>`;
+                    patientDiv.innerHTML = `
+                        <div class="flex items-start justify-between">
+                            <div class="flex items-start gap-4">
+                                <div class="w-3 h-3 rounded-full dot-${patient.nivelTriage} mt-2 flex-shrink-0"></div>
+                                <div>
+                                    <div class="flex items-center gap-3 flex-wrap"><p class="font-bold text-lg">${patient.nombre}</p>${statusBadge}</div>
+                                    <p class="text-sm text-gray-500">${new Date(patient.horaLlegada).toLocaleTimeString('es-ES')}</p>
+                                    <p class="text-xs text-gray-600 mt-1">${vitalsDisplay}</p>
+                                </div>
+                            </div>
+                            <div>${sendToNursingBtn}</div>
+                        </div>
+                        <div class="flex items-center gap-3 mt-3 pl-7">
+                            <span class="text-xs font-semibold">Cambiar Nivel:</span>
+                            <span class="edit-triage-btn cursor-pointer w-4 h-4 rounded-full dot-rojo" data-id="${patient.id}" data-level="rojo"></span>
+                            <span class="edit-triage-btn cursor-pointer w-4 h-4 rounded-full dot-naranja" data-id="${patient.id}" data-level="naranja"></span>
+                            <span class="edit-triage-btn cursor-pointer w-4 h-4 rounded-full dot-amarillo" data-id="${patient.id}" data-level="amarillo"></span>
+                            <span class="edit-triage-btn cursor-pointer w-4 h-4 rounded-full dot-verde" data-id="${patient.id}" data-level="verde"></span>
+                            <span class="edit-triage-btn cursor-pointer w-4 h-4 rounded-full dot-azul" data-id="${patient.id}" data-level="azul"></span>
+                        </div>`;
                     patientList.appendChild(patientDiv);
                 });
             }
 
             // --- Shift History List Rendering ---
-            function renderShiftHistory(allHistory) {
-                if (!isShiftActive || !currentUser) { shiftPatientList.innerHTML = ''; noShiftPatientsMessage.classList.remove('hidden'); return; }
-                
-                // Esta lógica se simplifica porque el servidor ahora nos devuelve solo el historial del turno
-                const myShiftPatients = allHistory.filter(p => p.registeredBy === currentUser.user); // Filtro simple por si acaso
-                
+            function renderShiftHistory() {
                 shiftPatientList.innerHTML = '';
-                noShiftPatientsMessage.classList.toggle('hidden', myShiftPatients.length > 0);
-
-                myShiftPatients.forEach(p => {
+                noShiftPatientsMessage.classList.toggle('hidden', currentShiftPatients.length > 0);
+                currentShiftPatients.forEach(p => {
                     const patientDiv = document.createElement('div');
                     patientDiv.className = 'bg-gray-50 p-2 rounded';
                     patientDiv.innerHTML = `<p class="font-semibold">${p.nombre} <span class="text-xs font-normal text-gray-500">- ${new Date(p.horaLlegada).toLocaleTimeString('es-ES')}</span></p>`;
@@ -134,7 +154,7 @@
                 if (noteText) {
                     accumulatedNotes.push(noteText);
                     const noteEl = document.createElement('div');
-                    noteEl.className = 'bg-blue-100 text-blue-800 p-2 rounded flex justify-between items-center';
+                    noteEl.className = 'bg-blue-100 text-blue-800 p-2 rounded flex justify-between items-center text-sm';
                     noteEl.textContent = noteText;
                     notesList.appendChild(noteEl);
                     patientNotesInput.value = '';
@@ -146,24 +166,40 @@
                 e.preventDefault();
                 if (!patientNameInput.value.trim() || !selectedLevel) { alert("Nombre y Nivel son obligatorios."); return; }
                 const newPatient = {
-                    id: Date.now(),
-                    nombre: patientNameInput.value.trim().toUpperCase(),
-                    dni: patientDniInput.value.trim(),
+                    id: Date.now(), nombre: patientNameInput.value.trim().toUpperCase(), dni: patientDniInput.value.trim(),
                     vitals: { ta: document.getElementById('vitalTa').value, fc: document.getElementById('vitalFc').value, temp: document.getElementById('vitalTemp').value, hgt: document.getElementById('vitalHgt').value, edad: document.getElementById('vitalEdad').value },
-                    notas: accumulatedNotes.join('; '),
-                    nivelTriage: selectedLevel,
-                    ordenTriage: { 'rojo': 1, 'naranja': 2, 'amarillo': 3, 'verde': 4, 'azul': 5 }[selectedLevel],
-                    horaLlegada: Date.now(),
-                    status: 'en_espera'
+                    notas: accumulatedNotes.join('; '), nivelTriage: selectedLevel, ordenTriage: { 'rojo': 1, 'naranja': 2, 'amarillo': 3, 'verde': 4, 'azul': 5 }[selectedLevel],
+                    horaLlegada: Date.now(), status: 'en_espera'
                 };
                 socket.emit('register_patient', newPatient);
-                triageForm.reset();
-                notesList.innerHTML = '';
-                accumulatedNotes = [];
-                triageButtons.forEach(btn => btn.classList.remove('selected'));
-                selectedLevel = null;
-                patientNameInput.focus();
+                if(isShiftActive) { currentShiftPatients.push(newPatient); renderShiftHistory(); }
+                triageForm.reset(); notesList.innerHTML = ''; accumulatedNotes = []; triageButtons.forEach(btn => btn.classList.remove('selected')); selectedLevel = null; patientNameInput.focus();
             });
+            
+            // --- Preset Logic ---
+            socket.on('presets_update', (presets) => { observationPresets = presets; });
+            observationSearch.addEventListener('input', () => {
+                const query = observationSearch.value.toLowerCase();
+                presetsDropdown.innerHTML = '';
+                if (query.length < 2) { presetsDropdown.classList.add('hidden'); return; }
+                const filtered = observationPresets.filter(p => p.text.toLowerCase().includes(query));
+                if (filtered.length > 0) {
+                    filtered.forEach(preset => {
+                        const item = document.createElement('div');
+                        item.className = 'p-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2';
+                        item.innerHTML = `<div class="w-3 h-3 rounded-full dot-${preset.level}"></div><span>${preset.text}</span>`;
+                        item.addEventListener('click', () => {
+                            patientNotesInput.value = preset.text;
+                            observationSearch.value = '';
+                            presetsDropdown.classList.add('hidden');
+                            triageButtons.forEach(btn => { btn.classList.remove('selected'); if (btn.dataset.level === preset.level) { btn.classList.add('selected'); selectedLevel = preset.level; } });
+                        });
+                        presetsDropdown.appendChild(item);
+                    });
+                    presetsDropdown.classList.remove('hidden');
+                } else { presetsDropdown.classList.add('hidden'); }
+            });
+            document.addEventListener('click', (e) => { if (!observationSearch.contains(e.target)) { presetsDropdown.classList.add('hidden'); } });
 
             // --- PDF Generation ---
             function generateShiftPDF(shiftData) {
@@ -174,38 +210,20 @@
                 doc.text(`Profesional: ${shiftData.user.fullName}`, 14, 30);
                 doc.text(`Inicio de Guardia: ${new Date(shiftData.startTime).toLocaleString('es-ES')}`, 14, 36);
                 doc.text(`Fin de Guardia: ${new Date(shiftData.endTime).toLocaleString('es-ES')}`, 14, 42);
-
-                if (shiftData.attendedPatients.length === 0) {
-                    doc.text("No se registraron pacientes durante esta guardia.", 14, 55);
-                } else {
-                    doc.autoTable({
-                        startY: 50,
-                        head: [['#', 'Hora Ingreso', 'Nombre', 'DNI', 'Nivel Triage', 'Notas']],
-                        body: shiftData.attendedPatients.map((p, i) => [
-                            i + 1,
-                            new Date(p.horaLlegada).toLocaleTimeString('es-ES'),
-                            p.nombre,
-                            p.dni || 'N/A',
-                            p.nivelTriage,
-                            p.notas || ''
-                        ]),
-                        headStyles: { fillColor: [41, 128, 185] },
-                    });
+                if (shiftData.attendedPatients.length === 0) { doc.text("No se registraron pacientes durante esta guardia.", 14, 55); } 
+                else {
+                    const body = shiftData.attendedPatients.map((p, i) => [i + 1, new Date(p.horaLlegada).toLocaleTimeString('es-ES'), p.nombre, p.dni || 'N/A', p.nivelTriage, p.notas || '']);
+                    doc.autoTable({ startY: 50, head: [['#', 'Hora Ingreso', 'Nombre', 'DNI', 'Nivel', 'Notas']], body, headStyles: { fillColor: [41, 128, 185] } });
                 }
                 doc.save(`Reporte_Triage_${shiftData.user.user}_${new Date().toLocaleDateString('es-ES').replace(/\//g, '-')}.pdf`);
             }
 
             // --- Socket & Event Listeners ---
-            socket.on('update_patient_list', renderPatientList);
-            socket.on('attended_history_update', renderShiftHistory);
-            
+            socket.on('update_patient_list', (patients) => { renderPatientList(patients); });
             patientList.addEventListener('click', (e) => {
-                if (e.target.classList.contains('send-to-nursing-btn')) {
-                    const patientId = parseInt(e.target.dataset.id);
-                    if(confirm("¿Enviar este paciente directamente a observación de enfermería?")) {
-                        socket.emit('send_to_nursing', { patientId });
-                    }
-                }
+                const target = e.target;
+                if (target.classList.contains('edit-triage-btn')) { socket.emit('update_patient_level', { id: parseInt(target.dataset.id, 10), newLevel: target.dataset.level }); }
+                if (target.classList.contains('send-to-nursing-btn')) { if(confirm("¿Enviar este paciente directamente a observación de enfermería?")) { socket.emit('send_to_nursing', { patientId: parseInt(target.dataset.id) }); } }
             });
         });
     </script>
