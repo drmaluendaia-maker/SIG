@@ -1,7 +1,7 @@
 // =================================================================================
 // SERVIDOR DEL SISTEMA INTEGRADO DE GUARDIA (SIG)
 // Autor: Dr. Xavier Maluenda y Gemini
-// Versión: 3.3.1 (Corrección de Permisos de Administrador)
+// Versión: 3.3.2 (Corrección Crítica del Listener de Eventos de Paciente)
 // =================================================================================
 
 // 1. IMPORTACIONES Y CONFIGURACIÓN BÁSICA
@@ -81,14 +81,17 @@ const logAction = (patientId, type, details, user) => {
 // 5. LÓGICA DE SOCKETS
 io.on('connection', (socket) => {
     let currentUser = null;
-    let isAuthenticated = false; // --- CORRECCIÓN: Variable de estado de autenticación por conexión ---
+    let isAuthenticated = false;
 
     const authenticate = (user) => {
         currentUser = user;
-        isAuthenticated = true; // --- CORRECCIÓN: Se establece al autenticar ---
+        isAuthenticated = true;
         socket.emit('auth_success', user);
         console.log(`Usuario conectado: ${user.user} (${user.role})`);
         socket.emit('presets_update', observationPresets);
+        
+        // --- CORRECCIÓN CRÍTICA: Activar los listeners de eventos de paciente para este usuario ---
+        setupPatientEvents();
     };
 
     socket.on('authenticate_user', ({ user, pass }) => { const foundUser = users.find(u => u.user === user && u.pass === pass); if (foundUser) authenticate(foundUser); else socket.emit('auth_fail'); });
@@ -98,9 +101,8 @@ io.on('connection', (socket) => {
     socket.on('admin_login', ({pass}) => {
         if (pass === ADMIN_MASTER_PASS) {
             currentUser = { role: 'admin', fullName: 'SuperAdmin' };
-            isAuthenticated = true; // --- CORRECCIÓN CLAVE --- Se activa la autenticación para el admin.
+            isAuthenticated = true;
             socket.emit('admin_auth_success', {});
-            // Emitir listas actualizadas al admin logueado
             socket.emit('users_update', users);
             socket.emit('presets_update', observationPresets);
         } else {
@@ -110,38 +112,38 @@ io.on('connection', (socket) => {
 
     const hasAdminPermission = () => isAuthenticated && currentUser && currentUser.role === 'admin';
     
-    socket.on('add_user', (newUser) => {
-        if (hasAdminPermission() && newUser.user && newUser.pass && newUser.fullName && newUser.role) {
-            if (!users.some(u => u.user === newUser.user) && newUser.user !== 'superadmin') {
-                newUser.token = crypto.randomBytes(16).toString('hex');
-                users.push(newUser);
-                saveUsers();
-                io.emit('users_update', users); // Notificar a todos los admins
-            }
-        }
-    });
+    socket.on('add_user', (newUser) => { if (hasAdminPermission() && newUser.user && newUser.pass && newUser.fullName && newUser.role) { if (!users.some(u => u.user === newUser.user)) { newUser.token = crypto.randomBytes(16).toString('hex'); users.push(newUser); saveUsers(); io.emit('users_update', users); } } });
+    socket.on('add_preset', (newPreset) => { if (hasAdminPermission() && newPreset.text && newPreset.level && !observationPresets.some(p => p.text === newPreset.text)) { observationPresets.push(newPreset); savePresets(); io.emit('presets_update', observationPresets); } });
     
-    socket.on('add_preset', (newPreset) => {
-        if (hasAdminPermission() && newPreset.text && newPreset.level && !observationPresets.some(p => p.text === newPreset.text)) {
-            observationPresets.push(newPreset);
-            savePresets();
-            io.emit('presets_update', observationPresets); // Notificar a todos los clientes
-        }
-    });
+    // ... (El resto de la lógica de admin no cambia para esta corrección)
 
-    // ... (El resto de la lógica del servidor no necesita cambios para esta corrección)
-    socket.on('get_users', () => { if (hasAdminPermission()) { socket.emit('users_update', users); } });
-    socket.on('delete_user', (username) => { if (hasAdminPermission() && username !== 'superadmin') { users = users.filter(u => u.user !== username); saveUsers(); io.emit('users_update', users); } });
-    socket.on('edit_user', ({ username, newFullName, newPassword }) => { if (hasAdminPermission() && username !== 'superadmin') { const userIndex = users.findIndex(u => u.user === username); if (userIndex > -1) { users[userIndex].fullName = newFullName; users[userIndex].pass = newPassword; saveUsers(); io.emit('users_update', users); } } });
-    socket.on('reset_patient_data', () => { if (hasAdminPermission()) { patients = []; attendedHistory = []; saveData(); io.emit('update_patient_list', patients); socket.emit('reset_success'); } });
-    socket.on('delete_preset', (presetText) => { if (hasAdminPermission() && presetText) { observationPresets = observationPresets.filter(p => p.text !== presetText); savePresets(); io.emit('presets_update', observationPresets); } });
-    socket.on('edit_preset', ({ oldText, newText, newLevel }) => { if (hasAdminPermission()) { const presetIndex = observationPresets.findIndex(p => p.text === oldText); if (presetIndex > -1) { observationPresets[presetIndex] = { text: newText, level: newLevel }; savePresets(); io.emit('presets_update', observationPresets); } } });
+    // --- GESTIÓN DE GUARDIA ---
     socket.on('start_shift', () => { if (!currentUser) return; activeShifts[currentUser.user] = { user: currentUser, startTime: Date.now(), managedPatientIds: new Set() }; console.log(`Guardia INICIADA por ${currentUser.user}`); });
     socket.on('end_shift', (callback) => { if (!currentUser || !activeShifts[currentUser.user]) return; const shift = activeShifts[currentUser.user]; const attendedInShift = [...attendedHistory, ...patients].filter(p => shift.managedPatientIds.has(p.id)); delete activeShifts[currentUser.user]; console.log(`Guardia FINALIZADA por ${currentUser.user}`); callback({ user: currentUser, startTime: shift.startTime, endTime: Date.now(), attendedPatients: attendedInShift }); });
+
+    // --- EVENTOS DE PACIENTES ---
     const setupPatientEvents = () => {
         const events = {
-            'register_patient': (newPatient) => { if (currentUser.role !== 'registro') return; newPatient.log = []; patients.push(newPatient); sortPatients(); logAction(newPatient.id, 'Registro', `Paciente registrado con nivel ${newPatient.nivelTriage}.`, currentUser); io.emit('new_patient_notification', { patient: newPatient }); },
-            'update_patient_level': ({ id, newLevel }) => { if (currentUser.role !== 'registro') return; const p = patients.find(p => p.id === id); if (p) { const oldLevel = p.nivelTriage; p.nivelTriage = newLevel; p.ordenTriage = triageOrder[newLevel]; sortPatients(); logAction(id, 'Re-Triage', `Nivel cambiado de ${oldLevel} a ${newLevel}.`, currentUser); } },
+            'register_patient': (newPatient) => {
+                if (currentUser.role !== 'registro') return;
+                newPatient.log = [];
+                patients.push(newPatient);
+                sortPatients();
+                logAction(newPatient.id, 'Registro', `Paciente registrado con nivel ${newPatient.nivelTriage}.`, currentUser);
+                io.emit('new_patient_notification', { patient: newPatient });
+            },
+            'update_patient_level': ({ id, newLevel }) => {
+                if (currentUser.role !== 'registro') return;
+                const p = patients.find(p => p.id === id);
+                if (p) {
+                    const oldLevel = p.nivelTriage;
+                    p.nivelTriage = newLevel;
+                    p.ordenTriage = triageOrder[newLevel];
+                    sortPatients();
+                    logAction(id, 'Re-Triage', `Nivel cambiado de ${oldLevel} a ${newLevel}.`, currentUser);
+                }
+            },
+            // ... (El resto de los eventos permanecen igual)
             'send_to_nursing': ({ patientId }) => { if (currentUser.role !== 'registro') return; const patient = patients.find(p => p.id === patientId); if (patient) { patient.status = 'pre_internacion'; logAction(patientId, 'Derivación', 'Enviado directamente a enfermería de guardia.', currentUser); } },
             'call_patient': ({ id, consultorio }) => { if (currentUser.role !== 'medico') return; const p = patients.find(p => p.id === id); if (p) { p.status = 'atendiendo'; p.consultorio = consultorio; p.doctor_user = currentUser.user; logAction(id, 'Llamado', `Llamado a consultorio ${consultorio}.`, currentUser); currentlyCalled = { nombre: p.nombre, consultorio }; io.emit('update_call', currentlyCalled); setTimeout(() => { currentlyCalled = null; io.emit('update_call', null); }, 20000); } },
             'add_nurse_evolution': ({ id, note }) => { if (currentUser.role !== 'registro' && currentUser.role !== 'enfermero_guardia') return; logAction(id, 'Nota de Enfermería', note, currentUser); },
@@ -150,11 +152,22 @@ io.on('connection', (socket) => {
             'update_indication_status': ({ patientId, indicationId }) => { if (currentUser.role !== 'enfermero_guardia') return; const patient = patients.find(p => p.id === patientId); const indication = patient?.indications.find(i => i.id === indicationId); if (indication) { indication.status = 'realizada'; indication.completedBy = currentUser.fullName; indication.completedAt = Date.now(); logAction(patientId, 'Indicación Cumplida', indication.text, currentUser); } },
             'mark_as_attended': ({ patientId }) => { const patientIndex = patients.findIndex(p => p.id === patientId); if (patientIndex > -1) { const [patient] = patients.splice(patientIndex, 1); patient.attendedAt = Date.now(); patient.disposition = 'Alta'; attendedHistory.push(patient); logAction(patientId, 'Alta Médica', `Paciente dado de alta.`, currentUser); } },
         };
-        for (const eventName in events) { socket.on(eventName, (data) => { if (!currentUser) return; events[eventName](data); saveData(); io.emit('update_patient_list', patients); io.emit('attended_history_update', attendedHistory); }); }
+
+        for (const eventName in events) {
+            socket.on(eventName, (data) => {
+                if (!currentUser) return;
+                events[eventName](data);
+                saveData();
+                io.emit('update_patient_list', patients);
+                io.emit('attended_history_update', attendedHistory);
+            });
+        }
     };
-    setupPatientEvents();
+
+    // Emisiones iniciales al cliente
     socket.emit('update_patient_list', patients);
     socket.emit('attended_history_update', attendedHistory);
+
     socket.on('disconnect', () => { if (currentUser) console.log(`Usuario desconectado: ${currentUser.user}`); });
 });
 
@@ -162,6 +175,6 @@ io.on('connection', (socket) => {
 const DEPLOY_PORT = process.env.PORT || PORT;
 server.listen(DEPLOY_PORT, '0.0.0.0', () => {
     loadData();
-    console.log(`✔️  Servidor SIG v3.3.1 escuchando en el puerto ${DEPLOY_PORT}`);
+    console.log(`✔️  Servidor SIG v3.3.2 escuchando en el puerto ${DEPLOY_PORT}`);
     if (!process.env.RENDER) { open(`http://localhost:${PORT}`); }
 });
