@@ -1,0 +1,18 @@
+[
+  {
+    "text": "Parada cardiorrespiratoria",
+    "level": "rojo"
+  },
+  {
+    "text": "Dolor torácico opresivo",
+    "level": "naranja"
+  },
+  {
+    "text": "Crisis asmática",
+    "level": "amarillo"
+  },
+  {
+    "text": "Tos y mocos",
+    "level": "verde"
+  }
+]
