@@ -1,0 +1,30 @@
+[
+  {
+    "user": "admin",
+    "pass": "SIGadmin2025",
+    "role": "registro",
+    "fullName": "Enfermería de Triage",
+    "token": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+  },
+  {
+    "user": "medico1",
+    "pass": "med1",
+    "role": "medico",
+    "fullName": "Dr. Gregory House",
+    "token": "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5"
+  },
+  {
+    "user": "enfguardia",
+    "pass": "enf123",
+    "role": "enfermero_guardia",
+    "fullName": "Enfermería de Guardia",
+    "token": "c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6"
+  },
+  {
+    "user": "stats",
+    "pass": "stats123",
+    "role": "estadisticas",
+    "fullName": "Jefe de Guardia",
+    "token": "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1"
+  }
+]
