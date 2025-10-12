@@ -24,6 +24,7 @@
             <form id="loginForm"><input type="text" id="userInput" class="w-full px-4 py-3 border rounded-lg mb-4 text-center" placeholder="Usuario"><input type="password" id="passwordInput" class="w-full px-4 py-3 border rounded-lg mb-4 text-center" placeholder="••••••••"><div class="flex items-center justify-center mb-4"><input id="rememberMe" type="checkbox" class="h-4 w-4 text-indigo-600 rounded"><label for="rememberMe" class="ml-2 block text-sm text-gray-900">Recordar</label></div><button type="submit" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg">Ingresar</button><p id="loginError" class="text-red-500 text-sm mt-2 h-4"></p></form>
         </div>
     </div>
+    
     <div id="reevaluateModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 z-40 flex items-center justify-center p-4">
         <div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-lg">
             <h2 class="text-2xl font-bold mb-4">Reevaluar Paciente: <span id="reevaluatePatientName"></span></h2>
@@ -35,8 +36,9 @@
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700">Actualizar Signos Vitales</label>
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1">
-                        <input type="text" id="reevaluateVitalTa" placeholder="TA" class="px-2 py-2 border rounded-lg text-sm">
+                    <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-1">
+                        <input type="number" id="reevaluateVitalTas" placeholder="TAS" class="px-2 py-2 border rounded-lg text-sm">
+                        <input type="number" id="reevaluateVitalTad" placeholder="TAD" class="px-2 py-2 border rounded-lg text-sm">
                         <input type="number" id="reevaluateVitalFc" placeholder="FC" class="px-2 py-2 border rounded-lg text-sm">
                         <input type="number" step="0.1" id="reevaluateVitalTemp" placeholder="T°" class="px-2 py-2 border rounded-lg text-sm">
                         <input type="number" id="reevaluateVitalHgt" placeholder="HGT" class="px-2 py-2 border rounded-lg text-sm">
@@ -77,7 +79,17 @@
                 <h2 class="text-3xl font-bold text-center mb-6">Registrar Nuevo Paciente</h2>
                 <form id="triageForm" class="space-y-6">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><input type="text" id="patientName" required placeholder="Nombre y Apellido" class="w-full px-4 py-3 border rounded-lg uppercase"><input type="number" id="patientDni" placeholder="DNI (para historial)" class="w-full px-4 py-3 border rounded-lg"></div>
-                    <div><span class="block text-sm font-medium text-gray-700 mb-2">Signos Vitales</span><div class="grid grid-cols-2 sm:grid-cols-4 gap-2"><input type="text" id="vitalTa" placeholder="TA (mmHg)" class="px-2 py-2 border rounded-lg text-sm"><input type="number" id="vitalFc" placeholder="FC (lpm)" class="px-2 py-2 border rounded-lg text-sm"><input type="number" step="0.1" id="vitalTemp" placeholder="T° (C°)" class="px-2 py-2 border rounded-lg text-sm"><input type="number" id="vitalHgt" placeholder="HGT (mg/dl)" class="px-2 py-2 border rounded-lg text-sm"><input type="text" id="vitalEdad" placeholder="Edad" class="px-2 py-2 border rounded-lg text-sm"></div></div>
+                    <div>
+                        <span class="block text-sm font-medium text-gray-700 mb-2">Signos Vitales</span>
+                        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                            <input type="number" id="vitalTas" placeholder="TAS" class="px-2 py-2 border rounded-lg text-sm">
+                            <input type="number" id="vitalTad" placeholder="TAD" class="px-2 py-2 border rounded-lg text-sm">
+                            <input type="number" id="vitalFc" placeholder="FC" class="px-2 py-2 border rounded-lg text-sm">
+                            <input type="number" step="0.1" id="vitalTemp" placeholder="T°" class="px-2 py-2 border rounded-lg text-sm">
+                            <input type="number" id="vitalHgt" placeholder="HGT" class="px-2 py-2 border rounded-lg text-sm">
+                            <input type="text" id="vitalEdad" placeholder="Edad" class="px-2 py-2 border rounded-lg text-sm col-span-2 sm:col-span-1">
+                        </div>
+                    </div>
                     <div class="relative"><input type="text" id="observationSearch" class="w-full px-4 py-3 border rounded-lg" placeholder="Buscar Motivo (Preset)..."><div id="presetsDropdown" class="hidden absolute w-full bg-white border mt-1 rounded-lg shadow-lg max-h-48 overflow-y-auto z-10"></div></div>
                     <div><textarea id="patientNotes" rows="2" class="w-full px-4 py-3 border rounded-lg" placeholder="Añadir observaciones..."></textarea></div>
                     <div><span class="block text-sm font-medium text-gray-700 mb-2">Nivel de Triage</span><div class="grid grid-cols-2 lg:grid-cols-3 gap-4"><button type="button" data-level="rojo" class="triage-button text-white font-bold py-4 rounded-lg bg-red-600">Nivel 1</button><button type="button" data-level="naranja" class="triage-button text-white font-bold py-4 rounded-lg bg-orange-500">Nivel 2</button><button type="button" data-level="amarillo" class="triage-button text-white font-bold py-4 rounded-lg bg-yellow-500">Nivel 3</button><button type="button" data-level="verde" class="triage-button text-white font-bold py-4 rounded-lg bg-green-600">Nivel 4</button><button type="button" data-level="azul" class="triage-button text-white font-bold py-4 rounded-lg bg-blue-600">Nivel 5</button></div></div>
@@ -123,6 +135,11 @@
             endShiftBtn.addEventListener('click', () => { if(!confirm("¿Finalizar guardia? Se generará el reporte de su actividad.")) return; socket.emit('end_shift', (shiftData) => { generateShiftPDF(shiftData); isShiftActive = false; startShiftBtn.classList.remove('hidden'); shiftActiveDisplay.classList.add('hidden'); renderShiftHistory(); }); });
 
             // --- Rendering ---
+            const getTADisplay = (vitals) => {
+                if (vitals.tas && vitals.tad) return `${vitals.tas}/${vitals.tad}`;
+                return vitals.ta || 'N/A'; // Fallback for old data
+            };
+
             function renderPatientList(waiting) {
                 patientList.innerHTML = '';
                 noPatientsMessage.classList.toggle('hidden', waiting.length > 0);
@@ -130,7 +147,7 @@
                     const patientDiv = document.createElement('div');
                     patientDiv.className = `bg-gray-50 p-4 rounded-lg shadow border-l-8 dot-${patient.nivelTriage}`;
                     const vitalsDisplay = [
-                        `TA: ${patient.vitals.ta || 'N/A'}`,
+                        `TA: ${getTADisplay(patient.vitals)}`,
                         `FC: ${patient.vitals.fc || 'N/A'}`,
                         `T°: ${patient.vitals.temp || 'N/A'}`,
                         `HGT: ${patient.vitals.hgt || 'N/A'}`
@@ -164,7 +181,7 @@
                 myShiftPatients.forEach(p => {
                     const patientDiv = document.createElement('div');
                     patientDiv.className = 'bg-gray-100 p-3 rounded-md border-l-4 border-gray-400';
-                    const vitalsDisplay = [ `TA: ${p.vitals.ta || 'N/A'}`, `FC: ${p.vitals.fc || 'N/A'}`, `T°: ${p.vitals.temp || 'N/A'}`, `HGT: ${p.vitals.hgt || 'N/A'}` ].join(' | ');
+                    const vitalsDisplay = [ `TA: ${getTADisplay(p.vitals)}`, `FC: ${p.vitals.fc || 'N/A'}`, `T°: ${p.vitals.temp || 'N/A'}`, `HGT: ${p.vitals.hgt || 'N/A'}` ].join(' | ');
                     patientDiv.innerHTML = `<div class="flex justify-between items-start"><div><p class="font-bold">${p.nombre}</p><p class="text-xs text-gray-600">DNI: ${p.dni || 'N/A'}</p></div><div class="flex items-center gap-2"><span class="text-xs text-gray-500">${new Date(p.horaLlegada).toLocaleString('es-ES')}</span><div class="w-3 h-3 rounded-full dot-${p.nivelTriage}"></div></div></div><p class="text-xs text-gray-800 mt-2 bg-gray-200 p-1 rounded"><b>Motivo:</b> ${p.notas || ''}</p><p class="text-xs text-gray-500 mt-1">${vitalsDisplay}</p>`;
                     shiftPatientList.appendChild(patientDiv);
                 });
@@ -182,7 +199,14 @@
 
                 const newPatient = {
                     id: Date.now(), nombre: patientNameInput.value.trim().toUpperCase(), dni: patientDniInput.value.trim(),
-                    vitals: { ta: document.getElementById('vitalTa').value, fc: document.getElementById('vitalFc').value, temp: document.getElementById('vitalTemp').value, hgt: document.getElementById('vitalHgt').value, edad: document.getElementById('vitalEdad').value },
+                    vitals: { 
+                        tas: document.getElementById('vitalTas').value,
+                        tad: document.getElementById('vitalTad').value,
+                        fc: document.getElementById('vitalFc').value, 
+                        temp: document.getElementById('vitalTemp').value, 
+                        hgt: document.getElementById('vitalHgt').value, 
+                        edad: document.getElementById('vitalEdad').value 
+                    },
                     notas: combinedNotes, nivelTriage: selectedLevel, ordenTriage: { 'rojo': 1, 'naranja': 2, 'amarillo': 3, 'verde': 4, 'azul': 5 }[selectedLevel],
                     horaLlegada: Date.now(), status: 'en_espera', registeredBy: currentUser.user
                 };
@@ -200,13 +224,12 @@
                         reevaluatePatientName.textContent = patient.nombre;
                         reevaluatePatientId.value = patientId;
                         
-                        // Cargar vitales actuales en el modal
-                        document.getElementById('reevaluateVitalTa').value = patient.vitals.ta || '';
+                        document.getElementById('reevaluateVitalTas').value = patient.vitals.tas || '';
+                        document.getElementById('reevaluateVitalTad').value = patient.vitals.tad || '';
                         document.getElementById('reevaluateVitalFc').value = patient.vitals.fc || '';
                         document.getElementById('reevaluateVitalTemp').value = patient.vitals.temp || '';
                         document.getElementById('reevaluateVitalHgt').value = patient.vitals.hgt || '';
 
-                        // Marcar el nivel de triage actual
                         selectedReevaluateLevel = null;
                         reevaluateTriageButtons.forEach(btn => {
                             btn.classList.remove('selected');
@@ -245,14 +268,15 @@
                     id: parseInt(reevaluatePatientId.value),
                     newNotes: document.getElementById('reevaluateNotes').value.trim(),
                     newVitals: { 
-                        ta: document.getElementById('reevaluateVitalTa').value, 
+                        tas: document.getElementById('reevaluateVitalTas').value,
+                        tad: document.getElementById('reevaluateVitalTad').value,
                         fc: document.getElementById('reevaluateVitalFc').value, 
                         temp: document.getElementById('reevaluateVitalTemp').value, 
                         hgt: document.getElementById('reevaluateVitalHgt').value 
                     },
                     newLevel: selectedReevaluateLevel
                 };
-                socket.emit('reevaluate_patient', payload); // Usamos un nuevo evento
+                socket.emit('reevaluate_patient', payload);
                 closeModal();
             });
 
@@ -269,7 +293,7 @@
                 doc.setFontSize(11); doc.text(`Profesional: ${shiftData.user.fullName}`, 14, 30); doc.text(`Inicio: ${new Date(shiftData.startTime).toLocaleString('es-ES')} | Fin: ${new Date(shiftData.endTime).toLocaleString('es-ES')}`, 14, 36);
                 if (shiftData.attendedPatients.length === 0) { doc.text("No se registraron pacientes.", 14, 55); } 
                 else {
-                    const body = shiftData.attendedPatients.map((p, i) => [ i + 1, new Date(p.horaLlegada).toLocaleString('es-ES'), p.nombre, p.dni || 'N/A', p.nivelTriage, p.notas || '', [ `TA: ${p.vitals.ta||''}`, `FC: ${p.vitals.fc||''}`, `T°: ${p.vitals.temp||''}`, `HGT: ${p.vitals.hgt||''}` ].join(', ') ]);
+                    const body = shiftData.attendedPatients.map((p, i) => [ i + 1, new Date(p.horaLlegada).toLocaleString('es-ES'), p.nombre, p.dni || 'N/A', p.nivelTriage, p.notas || '', [ `TA: ${getTADisplay(p.vitals)}`, `FC: ${p.vitals.fc||''}`, `T°: ${p.vitals.temp||''}`, `HGT: ${p.vitals.hgt||''}` ].join(', ') ]);
                     doc.autoTable({ startY: 50, head: [['#', 'Fecha/Hora', 'Nombre', 'DNI', 'Nivel', 'Motivo', 'Vitales']], body, headStyles: { fillColor: [41, 128, 185] } });
                 }
                 doc.save(`Reporte_Triage_${shiftData.user.user}_${new Date().toLocaleDateString('es-ES').replace(/\//g, '-')}.pdf`);
