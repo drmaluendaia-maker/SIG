@@ -1,7 +1,7 @@
 {
   "name": "sig-servidor",
-  "version": "3.0.0",
-  "description": "Servidor para el Sistema Integrado de Guardia.",
+  "version": "4.0.0",
+  "description": "Servidor para el Sistema Integrado de Guardia con SQLite.",
   "main": "servidor.js",
   "scripts": {
     "start": "node servidor.js"
@@ -11,11 +11,10 @@
     "express": "^4.19.2",
     "socket.io": "^4.7.5",
     "open": "^8.4.2",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^5.1.7",
     "bcrypt": "^5.1.1"
   },
   "engines": {
     "node": ">=18.0.0"
   }
-
 }
