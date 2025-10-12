@@ -9,7 +9,7 @@
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; overflow: hidden; }
         @keyframes slideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; translateY(0); } }
-        .patient-card, .consultorio-card, .observation-card { animation: slideIn 0.4s ease-out forwards; }
+        .patient-card, .consultorio-card, .observation-card, .nursing-card { animation: slideIn 0.4s ease-out forwards; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.8; } }
         .emergency-view {
             background: linear-gradient(-45deg, #b91c1c, #dc2626, #7f1d1d, #ef4444);
@@ -28,27 +28,33 @@
     </div>
 
     <div id="mainView" class="flex flex-col min-h-screen">
-        <header class="p-8 text-center border-b border-slate-700">
-            <h1 class="text-5xl md:text-6xl font-black tracking-tight">Guardia Hospital Dr. A. Illia</h1>
+        <header class="p-4 md:p-8 text-center border-b border-slate-700">
+            <h1 class="text-4xl md:text-6xl font-black tracking-tight">Guardia Hospital Dr. A. Illia</h1>
         </header>
         
-        <main class="flex-grow grid grid-cols-1 lg:grid-cols-3 gap-8 p-8">
-            <div class="flex flex-col">
-                <h2 class="text-3xl font-bold text-slate-300 mb-4 text-center">EN ESPERA</h2>
+        <main class="flex-grow grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-8 p-4 md:p-8">
+            <div class="flex flex-col border-b lg:border-b-0 lg:border-r border-slate-700 pb-4 lg:pr-4">
+                <h2 class="text-2xl md:text-3xl font-bold text-slate-300 mb-4 text-center">EN ESPERA</h2>
                 <div id="patientList" class="w-full space-y-4">
-                     <p id="noPatientsMessage" class="text-center text-slate-500 text-2xl mt-20">No hay pacientes en espera.</p>
+                     <p id="noPatientsMessage" class="text-center text-slate-500 text-xl md:text-2xl mt-10 md:mt-20">No hay pacientes en espera.</p>
                 </div>
             </div>
-            <div class="flex flex-col border-l border-r border-slate-700 px-8">
-                <h2 class="text-3xl font-bold text-purple-400 mb-4 text-center">EN OBSERVACIÓN</h2>
-                <div id="observationList" class="w-full space-y-4">
-                    <p id="noObservationMessage" class="text-center text-slate-500 text-2xl mt-20">No hay pacientes en observación.</p>
-                </div>
-            </div>
-            <div class="flex flex-col">
-                <h2 class="text-3xl font-bold text-slate-300 mb-4 text-center">EN CONSULTORIO</h2>
+            <div class="flex flex-col pb-4 lg:pl-4">
+                <h2 class="text-2xl md:text-3xl font-bold text-slate-300 mb-4 text-center">EN CONSULTORIO</h2>
                 <div id="consultoriosList" class="w-full space-y-4">
-                     <p id="noConsultoriosMessage" class="text-center text-slate-500 text-2xl mt-20">Consultorios libres.</p>
+                     <p id="noConsultoriosMessage" class="text-center text-slate-500 text-xl md:text-2xl mt-10 md:mt-20">Consultorios libres.</p>
+                </div>
+            </div>
+            <div class="flex flex-col border-t lg:border-t-0 lg:border-r border-slate-700 pt-4 lg:pr-4">
+                <h2 class="text-2xl md:text-3xl font-bold text-purple-400 mb-4 text-center">EN OBSERVACIÓN</h2>
+                <div id="observationList" class="w-full space-y-4">
+                    <p id="noObservationMessage" class="text-center text-slate-500 text-xl md:text-2xl mt-10 md:mt-20">No hay pacientes en observación.</p>
+                </div>
+            </div>
+            <div class="flex flex-col border-t lg:border-t-0 pt-4 lg:pl-4">
+                <h2 class="text-2xl md:text-3xl font-bold text-teal-400 mb-4 text-center">A ENFERMERÍA</h2>
+                <div id="nursingList" class="w-full space-y-4">
+                    <p id="noNursingMessage" class="text-center text-slate-500 text-xl md:text-2xl mt-10 md:mt-20">No hay pacientes derivados.</p>
                 </div>
             </div>
         </main>
@@ -75,6 +81,8 @@
             const noObservationMessage = document.getElementById('noObservationMessage');
             const consultoriosListContainer = document.getElementById('consultoriosList');
             const noConsultoriosMessage = document.getElementById('noConsultoriosMessage');
+            const nursingListContainer = document.getElementById('nursingList');
+            const noNursingMessage = document.getElementById('noNursingMessage');
 
             // --- Sonido de llamada ---
             let synth;
@@ -98,9 +106,12 @@
                 const waitingPatients = patients.filter(p => p.status === 'en_espera' || p.status === 'ausente');
                 const observationPatients = patients.filter(p => p.status === 'pre_internacion');
                 const attendingPatients = patients.filter(p => p.status === 'atendiendo');
+                const nursingPatients = patients.filter(p => p.status === 'en_enfermeria'); // Nuevo filtro
+                
                 renderWaitingList(waitingPatients);
                 renderObservationList(observationPatients);
                 renderAttendingList(attendingPatients);
+                renderNursingList(nursingPatients); // Nuevo render
             });
 
             socket.on('emergency_status_update', (isEmergency) => {
@@ -125,16 +136,14 @@
 
                 patientsToDisplay.forEach((patient, index) => {
                     const card = document.createElement('div');
-                    let cardClasses = 'patient-card bg-slate-800 rounded-xl shadow-lg p-5 flex items-center space-x-6';
+                    let cardClasses = 'patient-card bg-slate-800 rounded-xl shadow-lg p-3 md:p-5 flex items-center space-x-4 md:space-x-6';
                     if (patient.status === 'ausente') cardClasses += ' status-ausente';
                     
                     card.className = cardClasses;
                     const colorMap = { rojo: '#ef4444', naranja: '#f97316', amarillo: '#f59e0b', verde: '#10b981', azul: '#3b82f6' };
                     card.style.borderLeft = `8px solid ${colorMap[patient.nivelTriage]}`;
 
-                    card.innerHTML = `
-                        <span class="text-4xl font-black text-slate-600 w-12 text-center">${index + 1}</span>
-                        <div class="flex-grow"><p class="text-4xl font-bold truncate">${patient.nombre}</p></div>`;
+                    card.innerHTML = `<div class="flex-grow"><p class="text-2xl md:text-4xl font-bold truncate">${patient.nombre}</p></div>`;
                     patientListContainer.appendChild(card);
                 });
             }
@@ -144,9 +153,20 @@
                 noObservationMessage.style.display = patients.length > 0 ? 'none' : 'block';
                 patients.forEach(patient => {
                     const card = document.createElement('div');
-                    card.className = 'observation-card bg-purple-900/50 rounded-xl shadow-lg p-5';
-                    card.innerHTML = `<p class="text-2xl font-semibold mt-1">${patient.nombre}</p>`;
+                    card.className = 'observation-card bg-purple-900/50 rounded-xl shadow-lg p-3 md:p-5';
+                    card.innerHTML = `<p class="text-xl md:text-2xl font-semibold mt-1">${patient.nombre}</p>`;
                     observationListContainer.appendChild(card);
+                });
+            }
+            
+            function renderNursingList(patients) {
+                nursingListContainer.innerHTML = '';
+                noNursingMessage.style.display = patients.length > 0 ? 'none' : 'block';
+                patients.forEach(patient => {
+                    const card = document.createElement('div');
+                    card.className = 'nursing-card bg-teal-900/50 rounded-xl shadow-lg p-3 md:p-5';
+                    card.innerHTML = `<p class="text-xl md:text-2xl font-semibold mt-1">${patient.nombre}</p>`;
+                    nursingListContainer.appendChild(card);
                 });
             }
 
@@ -156,10 +176,10 @@
 
                 patients.forEach(patient => {
                     const card = document.createElement('div');
-                    card.className = 'consultorio-card bg-slate-800 rounded-xl shadow-lg p-5';
+                    card.className = 'consultorio-card bg-slate-800 rounded-xl shadow-lg p-3 md:p-5';
                     card.innerHTML = `
-                        <p class="text-3xl font-bold text-blue-400">Consultorio ${patient.consultorio}</p>
-                        <p class="text-2xl font-semibold mt-1">${patient.nombre}</p>`;
+                        <p class="text-xl md:text-3xl font-bold text-blue-400">Consultorio ${patient.consultorio}</p>
+                        <p class="text-lg md:text-2xl font-semibold mt-1">${patient.nombre}</p>`;
                     consultoriosListContainer.appendChild(card);
                 });
             }
