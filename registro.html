@@ -144,11 +144,9 @@
                     id: Date.now(), nombre: patientNameInput.value.trim().toUpperCase(), dni: patientDniInput.value.trim(),
                     vitals: { ta: document.getElementById('vitalTa').value, fc: document.getElementById('vitalFc').value, temp: document.getElementById('vitalTemp').value, hgt: document.getElementById('vitalHgt').value, edad: document.getElementById('vitalEdad').value },
                     notas: accumulatedNotes.join('; '), nivelTriage: selectedLevel, ordenTriage: { 'rojo': 1, 'naranja': 2, 'amarillo': 3, 'verde': 4, 'azul': 5 }[selectedLevel],
-                    horaLlegada: Date.now(), status: 'en_espera', registeredBy: currentUser.user // --- CORRECCIÓN: Asegurar que el registrador se guarda ---
+                    horaLlegada: Date.now(), status: 'en_espera', registeredBy: currentUser.user
                 };
                 socket.emit('register_patient', newPatient);
-                
-                // Limpiar formulario
                 triageForm.reset(); notesList.innerHTML = ''; accumulatedNotes = []; triageButtons.forEach(btn => btn.classList.remove('selected')); selectedLevel = null; patientNameInput.focus();
             });
             
@@ -183,7 +181,7 @@
             socket.on('update_patient_list', (allPatients) => {
                 const waitingPatients = allPatients.filter(p => p.status === 'en_espera');
                 renderPatientList(waitingPatients);
-                renderShiftHistory(allPatients); // Actualiza la lista de la guardia con todos los pacientes
+                renderShiftHistory(allPatients);
             });
             
             patientList.addEventListener('click', (e) => { if (e.target.classList.contains('send-to-nursing-btn')) { if(confirm("¿Enviar este paciente directamente a observación de enfermería?")) { socket.emit('send_to_nursing', { patientId: parseInt(e.target.dataset.id) }); } } });
