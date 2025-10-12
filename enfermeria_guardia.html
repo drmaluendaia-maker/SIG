@@ -70,6 +70,11 @@
             endShiftBtn.addEventListener('click', () => { if(!confirm("¿Finalizar guardia? Se generará el reporte de su actividad.")) return; socket.emit('end_shift', (shiftData) => { generateShiftPDF(shiftData); isShiftActive = false; startShiftBtn.classList.remove('hidden'); shiftActiveDisplay.classList.add('hidden'); }); });
 
             // --- Patient Card Creation ---
+            const getTADisplay = (vitals) => {
+                if (vitals.tas && vitals.tad) return `${vitals.tas}/${vitals.tad}`;
+                return vitals.ta || 'N/A'; // Fallback for old data
+            };
+
             function createPatientCard(patient) {
                 const patientCard = document.createElement('div');
                 patientCard.className = 'bg-white p-6 rounded-lg shadow-md';
@@ -91,9 +96,21 @@
                     indicationsHTML += `<h4 class="text-sm font-bold mt-4 mb-1 text-green-700">Indicaciones Realizadas:</h4><div class="space-y-2">${completedIndications.map(ind => `<div class="bg-green-50 p-2 rounded text-gray-500"><p class="text-sm line-through">${ind.text}</p><p class="text-xs text-right text-green-800 font-semibold">- Dr/a. ${ind.doctor}</p></div>`).join('')}</div>`;
                 }
                 indicationsHTML += '</div>';
+                
+                let vitalsHTML = '';
+                if(patient.vitals && Object.values(patient.vitals).some(v => v)) {
+                    const vitalsContent = [
+                        patient.vitals.tas || patient.vitals.tad ? `<div><span class="font-bold">TA:</span> ${getTADisplay(patient.vitals)}</div>` : '',
+                        patient.vitals.fc ? `<div><span class="font-bold">FC:</span> ${patient.vitals.fc}</div>` : '',
+                        patient.vitals.temp ? `<div><span class="font-bold">T°:</span> ${patient.vitals.temp}</div>` : '',
+                        patient.vitals.hgt ? `<div><span class="font-bold">HGT:</span> ${patient.vitals.hgt}</div>` : ''
+                    ].filter(Boolean).join('');
+                    vitalsHTML = `<div class="mt-2 text-xs bg-gray-50 p-2 rounded-md grid grid-cols-2 sm:grid-cols-4 gap-2">${vitalsContent}</div>`;
+                }
 
                 patientCard.innerHTML = `
                     <div class="flex items-start justify-between"><div class="flex items-start gap-4"><div class="w-3 h-3 rounded-full dot-${patient.nivelTriage} mt-2 flex-shrink-0"></div><div class="flex-grow"><div class="flex items-center gap-3 flex-wrap"><p class="font-bold text-2xl">${patient.nombre}</p><span class="status-pre_internacion text-xs font-bold uppercase px-2 py-1 rounded-full">En Observación</span></div><p class="text-sm text-gray-500">DNI: ${patient.dni || 'N/A'}</p></div></div></div>
+                    ${vitalsHTML}
                     ${indicationsHTML}
                     ${logHTML}
                     <div class="mt-4 border-t pt-3"><form class="add-note-form flex gap-2" data-id="${patient.id}"><textarea class="w-full text-sm border rounded p-2" rows="2" placeholder="Añadir práctica o evolución..."></textarea><button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 text-sm font-bold">Guardar</button></form></div>
