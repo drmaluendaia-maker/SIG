@@ -1,7 +1,7 @@
 // =================================================================================
 // SERVIDOR DEL SISTEMA INTEGRADO DE GUARDIA (SIG)
 // Autor: Dr. Xavier Maluenda y Gemini (Refactorizado por Programador Senior)
-// Versión: 4.0 (Base de Datos SQLite y Seguridad Mejorada)
+// Versión: 4.5 (Funcionalidad de Administración Completa)
 // =================================================================================
 
 // 1. IMPORTACIONES Y CONFIGURACIÓN BÁSICA
@@ -150,7 +150,6 @@ let activeShifts = {};
 const broadcastFullState = async () => {
     try {
         const activePatients = await dbAll("SELECT * FROM patients WHERE status != 'atendido' ORDER BY ordenTriage, horaLlegada");
-        // Deserializar JSON strings
         activePatients.forEach(p => {
             p.vitals = JSON.parse(p.vitals || '{}');
             p.log = JSON.parse(p.log || '[]');
@@ -167,9 +166,19 @@ const broadcastFullState = async () => {
             p.transferData = JSON.parse(p.transferData || '{}');
         });
         io.emit('attended_history_update', attendedHistory);
-
     } catch (error) {
         console.error("Error al emitir el estado completo:", error);
+    }
+};
+
+const broadcastAdminData = async () => {
+    try {
+        const presets = await dbAll('SELECT text, level FROM presets ORDER BY text');
+        io.emit('presets_update', presets);
+        const users = await dbAll('SELECT user, pass, role, fullName FROM users'); // pass needed for edit form
+        io.emit('users_update', users);
+    } catch (error) {
+        console.error("Error al emitir datos de admin:", error);
     }
 };
 
@@ -194,13 +203,11 @@ const logAction = async (patientId, type, details, user) => {
 // 6. LÓGICA DE SOCKETS
 io.on('connection', (socket) => {
     let currentUser = null;
+    let isAdminAuthenticated = false;
 
     const emitAllData = async () => {
         await broadcastFullState();
-        const presets = await dbAll('SELECT text, level FROM presets');
-        socket.emit('presets_update', presets);
-        const users = await dbAll('SELECT user, role, fullName FROM users');
-        socket.emit('users_update', users);
+        await broadcastAdminData();
     };
 
     // --- AUTENTICACIÓN ---
@@ -239,8 +246,7 @@ io.on('connection', (socket) => {
     });
 
     // --- LÓGICA DE PACIENTES (Refactorizada con DB) ---
-
-    // REGISTRO
+    // (Esta sección no cambia respecto a la versión anterior)
     socket.on('register_patient', async (newPatient) => {
         if (!currentUser || currentUser.role !== 'registro') return;
         try {
@@ -259,8 +265,6 @@ io.on('connection', (socket) => {
             console.error("Error en register_patient:", error);
         }
     });
-    
-    // MÉDICO
     socket.on('call_patient', async ({ id, consultorio }) => {
         if (!currentUser || currentUser.role !== 'medico') return;
         try {
@@ -278,7 +282,6 @@ io.on('connection', (socket) => {
             console.error("Error en call_patient:", error);
         }
     });
-
     socket.on('update_patient_status', async ({ id, status }) => {
         if (!currentUser || currentUser.role !== 'medico') return;
         try {
@@ -289,7 +292,6 @@ io.on('connection', (socket) => {
             console.error("Error en update_patient_status:", error);
         }
     });
-
     socket.on('mark_as_attended', async ({ patientId }) => {
         if (!currentUser || currentUser.role !== 'medico') return;
         try {
@@ -300,20 +302,16 @@ io.on('connection', (socket) => {
             console.error("Error en mark_as_attended:", error);
         }
     });
-    
-    // ENFERMERÍA Y MÉDICO (Notas e Indicaciones)
     socket.on('add_doctor_note', async ({ id, note }) => {
         if (!currentUser || currentUser.role !== 'medico') return;
         await logAction(id, 'Nota Médica', note, currentUser);
         await broadcastFullState();
     });
-    
     socket.on('add_nurse_evolution', async ({ id, note }) => {
          if (!currentUser || currentUser.role !== 'enfermero_guardia') return;
         await logAction(id, 'Nota de Enfermería', note, currentUser);
         await broadcastFullState();
     });
-
     socket.on('add_indication', async ({ id, text }) => {
         if (!currentUser || currentUser.role !== 'medico') return;
         try {
@@ -328,7 +326,6 @@ io.on('connection', (socket) => {
             console.error("Error en add_indication:", error);
         }
     });
-    
     socket.on('update_indication_status', async ({ patientId, indicationId }) => {
         if (!currentUser || currentUser.role !== 'enfermero_guardia') return;
         try {
@@ -350,6 +347,80 @@ io.on('connection', (socket) => {
         }
     });
     
+    // --- LÓGICA DE ADMINISTRACIÓN (NUEVO) ---
+    socket.on('admin_login', ({ pass }) => {
+        if (pass === ADMIN_MASTER_PASS) {
+            isAdminAuthenticated = true;
+            socket.emit('admin_auth_success');
+            console.log('🔑 Acceso de administrador concedido.');
+            emitAllData();
+        } else {
+            socket.emit('auth_fail');
+        }
+    });
+
+    // -- Gestión de Usuarios --
+    socket.on('add_user', async (newUser) => {
+        if (!isAdminAuthenticated) return;
+        try {
+            const hashedPassword = await bcrypt.hash(newUser.pass, SALT_ROUNDS);
+            const token = crypto.randomBytes(16).toString('hex');
+            await dbRun('INSERT INTO users (user, pass, role, fullName, token) VALUES (?, ?, ?, ?, ?)', [newUser.user, hashedPassword, newUser.role, newUser.fullName, token]);
+            await broadcastAdminData();
+        } catch (error) {
+            console.error("Error en add_user:", error);
+        }
+    });
+    socket.on('edit_user', async (updatedUser) => {
+        if (!isAdminAuthenticated) return;
+        try {
+            const hashedPassword = await bcrypt.hash(updatedUser.newPassword, SALT_ROUNDS);
+            await dbRun('UPDATE users SET pass = ?, fullName = ?, role = ? WHERE user = ?', [hashedPassword, updatedUser.newFullName, updatedUser.newRole, updatedUser.username]);
+            await broadcastAdminData();
+        } catch (error) {
+            console.error("Error en edit_user:", error);
+        }
+    });
+    socket.on('delete_user', async (username) => {
+        if (!isAdminAuthenticated) return;
+        try {
+            await dbRun('DELETE FROM users WHERE user = ?', [username]);
+            await broadcastAdminData();
+        } catch (error) {
+            console.error("Error en delete_user:", error);
+        }
+    });
+
+    // -- Gestión de Presets --
+    socket.on('add_preset', async (newPreset) => {
+        if (!isAdminAuthenticated) return;
+        try {
+            await dbRun('INSERT INTO presets (text, level) VALUES (?, ?)', [newPreset.text, newPreset.level]);
+            await broadcastAdminData();
+        } catch (error) {
+            console.error("Error en add_preset:", error);
+        }
+    });
+    socket.on('edit_preset', async (payload) => {
+        if (!isAdminAuthenticated) return;
+        try {
+            await dbRun('UPDATE presets SET text = ?, level = ? WHERE text = ?', [payload.newText, payload.newLevel, payload.oldText]);
+            await broadcastAdminData();
+        } catch (error) {
+            console.error("Error en edit_preset:", error);
+        }
+    });
+    socket.on('delete_preset', async (presetText) => {
+        if (!isAdminAuthenticated) return;
+        try {
+            await dbRun('DELETE FROM presets WHERE text = ?', [presetText]);
+            await broadcastAdminData();
+        } catch (error) {
+            console.error("Error en delete_preset:", error);
+        }
+    });
+
+
     // --- GESTIÓN DE GUARDIA ---
     socket.on('start_shift', () => { if (!currentUser) return; activeShifts[currentUser.user] = { user: currentUser, startTime: Date.now(), managedPatientIds: new Set() }; });
     socket.on('end_shift', async (callback) => {
@@ -380,7 +451,7 @@ io.on('connection', (socket) => {
 
 // 7. INICIO DEL SERVIDOR
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`✔️  Servidor SIG v4.0 escuchando en el puerto ${PORT}`);
+    console.log(`✔️  Servidor SIG v4.5 escuchando en el puerto ${PORT}`);
     if (!process.env.RENDER) {
         open(`http://localhost:${PORT}`);
     }
