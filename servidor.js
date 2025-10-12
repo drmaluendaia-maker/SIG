@@ -1,162 +1,387 @@
 // =================================================================================
 // SERVIDOR DEL SISTEMA INTEGRADO DE GUARDIA (SIG)
-// Autor: Dr. Xavier Maluenda y Gemini
-// Versión: 3.8 (Nuevas Funcionalidades de Flujo de Trabajo y Correcciones)
+// Autor: Dr. Xavier Maluenda y Gemini (Refactorizado por Programador Senior)
+// Versión: 4.0 (Base de Datos SQLite y Seguridad Mejorada)
 // =================================================================================
 
 // 1. IMPORTACIONES Y CONFIGURACIÓN BÁSICA
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const os = require('os');
-const fs = require('fs');
-const open = require('open');
-const crypto = require('crypto');
 const path = require('path');
+const sqlite3 = require('sqlite3').verbose();
+const bcrypt = require('bcrypt');
+const crypto = require('crypto');
+const open = require('open');
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+const SALT_ROUNDS = 10;
+const ADMIN_MASTER_PASS = "SIGadmin2025"; // Considerar mover a variable de entorno
 
+// 2. CONFIGURACIÓN DE LA BASE DE DATOS
 const DATA_DIR = process.env.RENDER_DISK_DIR || path.join(__dirname, 'data');
-if (!fs.existsSync(DATA_DIR)){ fs.mkdirSync(DATA_DIR, { recursive: true }); }
+const DB_PATH = path.join(DATA_DIR, 'sig.db');
 
-const DB_FILE = path.join(DATA_DIR, 'pacientes.json');
-const USERS_FILE = path.join(DATA_DIR, 'usuarios.json');
-const PRESETS_FILE = path.join(DATA_DIR, 'presets.json');
-const ADMIN_MASTER_PASS = "SIGadmin2025";
+const db = new sqlite3.Database(DB_PATH, (err) => {
+    if (err) {
+        console.error("❌ Error al abrir la base de datos", err.message);
+        process.exit(1);
+    }
+    console.log("✔️  Conectado a la base de datos SQLite.");
+    initializeDb();
+});
 
+// Helper para ejecutar queries con async/await
+const dbRun = (query, params = []) => new Promise((resolve, reject) => {
+    db.run(query, params, function(err) {
+        if (err) reject(err);
+        else resolve({ lastID: this.lastID, changes: this.changes });
+    });
+});
+
+const dbGet = (query, params = []) => new Promise((resolve, reject) => {
+    db.get(query, params, (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+    });
+});
+
+const dbAll = (query, params = []) => new Promise((resolve, reject) => {
+    db.all(query, params, (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+    });
+});
+
+
+// 3. INICIALIZACIÓN DE LA BASE DE DATOS
+const initializeDb = async () => {
+    try {
+        await dbRun(`
+            CREATE TABLE IF NOT EXISTS users (
+                user TEXT PRIMARY KEY,
+                pass TEXT NOT NULL,
+                role TEXT NOT NULL,
+                fullName TEXT NOT NULL,
+                token TEXT NOT NULL
+            )
+        `);
+        await dbRun(`
+            CREATE TABLE IF NOT EXISTS patients (
+                id INTEGER PRIMARY KEY,
+                nombre TEXT NOT NULL,
+                dni TEXT,
+                vitals TEXT,
+                notas TEXT,
+                nivelTriage TEXT,
+                ordenTriage INTEGER,
+                horaLlegada INTEGER,
+                status TEXT,
+                registeredBy TEXT,
+                doctor_user TEXT,
+                consultorio INTEGER,
+                attendedAt INTEGER,
+                disposition TEXT,
+                transferData TEXT,
+                log TEXT,
+                indications TEXT
+            )
+        `);
+         await dbRun(`
+            CREATE TABLE IF NOT EXISTS presets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL UNIQUE,
+                level TEXT NOT NULL
+            )
+        `);
+
+        // Insertar usuarios por defecto si la tabla está vacía
+        const userCount = await dbGet(`SELECT COUNT(*) as count FROM users`);
+        if (userCount.count === 0) {
+            console.log('Primera ejecución: Creando usuarios por defecto...');
+            const defaultUsers = [
+                { user: "admin", pass: "admin2025", role: "registro", fullName: "Enfermería de Triage" },
+                { user: "medico1", pass: "med1", role: "medico", fullName: "Dr. Gregory House" },
+                { user: "enfguardia", pass: "enf123", role: "enfermero_guardia", fullName: "Enfermería de Guardia" },
+                { user: "stats", pass: "stats123", role: "estadisticas", fullName: "Jefe de Guardia" }
+            ];
+            for (const u of defaultUsers) {
+                const hashedPassword = await bcrypt.hash(u.pass, SALT_ROUNDS);
+                const token = crypto.randomBytes(16).toString('hex');
+                await dbRun('INSERT INTO users (user, pass, role, fullName, token) VALUES (?, ?, ?, ?, ?)', [u.user, hashedPassword, u.role, u.fullName, token]);
+            }
+            console.log('✔️  Usuarios por defecto creados.');
+        }
+         // Insertar presets por defecto
+        const presetCount = await dbGet(`SELECT COUNT(*) as count FROM presets`);
+        if (presetCount.count === 0) {
+            const defaultPresets = [
+                { text: "Parada cardiorrespiratoria", level: "rojo" },
+                { text: "Dolor torácico opresivo", level: "naranja" },
+                { text: "Crisis asmática", level: "amarillo" },
+                { text: "Tos y mocos", level: "verde" }
+            ];
+            for (const p of defaultPresets) {
+                await dbRun('INSERT INTO presets (text, level) VALUES (?, ?)', [p.text, p.level]);
+            }
+        }
+
+        console.log("✔️  Base de datos inicializada correctamente.");
+    } catch (err) {
+        console.error("❌  Error crítico al inicializar la base de datos:", err.message);
+        process.exit(1);
+    }
+};
+
+
+// 4. CONFIGURACIÓN DE EXPRESS Y ESTADO DE LA APLICACIÓN
 app.use(express.static(__dirname));
 app.get('/', (req, res) => res.redirect('/index.html'));
 
-// 2. ESTADO DE LA APLICACIÓN
-let patients = [];
-let attendedHistory = [];
-let users = [];
-let observationPresets = [];
 let isEmergency = false;
 let currentlyCalled = null;
-const triageOrder = { 'rojo': 1, 'naranja': 2, 'amarillo': 3, 'verde': 4, 'azul': 5 };
 let activeShifts = {};
 
-// 3. PERSISTENCIA DE DATOS
-const saveData = () => { fs.writeFile(DB_FILE, JSON.stringify({ patients, attendedHistory }, null, 2), err => { if (err) console.error("Error al guardar pacientes:", err); }); };
-const saveUsers = () => { fs.writeFile(USERS_FILE, JSON.stringify(users, null, 2), err => { if (err) console.error("Error al guardar usuarios:", err); }); };
-const savePresets = () => { fs.writeFile(PRESETS_FILE, JSON.stringify(observationPresets, null, 2), err => { if (err) console.error("Error al guardar presets:", err); }); };
 
-const loadData = () => {
+// 5. FUNCIONES DE UTILIDAD Y EMISIÓN DE DATOS
+const broadcastFullState = async () => {
     try {
-        if (fs.existsSync(DB_FILE)) { const fileData = fs.readFileSync(DB_FILE); const data = JSON.parse(fileData.length ? fileData : '{}'); patients = data.patients || []; attendedHistory = data.attendedHistory || []; } else { fs.writeFileSync(DB_FILE, JSON.stringify({ patients: [], attendedHistory: [] }, null, 2)); }
-        if (!fs.existsSync(USERS_FILE)) {
-            const defaultUsers = [ { user: "admin", pass: "admin2025", role: "registro", fullName: "Enfermería de Triage", token: "a1" }, { user: "medico1", pass: "med1", role: "medico", fullName: "Dr. Gregory House", token: "b2" }, { user: "enfguardia", pass: "enf123", role: "enfermero_guardia", fullName: "Enfermería de Guardia", token: "c3" }, { user: "stats", pass: "stats123", role: "estadisticas", fullName: "Jefe de Guardia", token: "d4" } ];
-            fs.writeFileSync(USERS_FILE, JSON.stringify(defaultUsers, null, 2));
-        }
-        users = JSON.parse(fs.readFileSync(USERS_FILE));
-        if (!fs.existsSync(PRESETS_FILE)) {
-            const defaultPresets = [ { text: "Parada cardiorrespiratoria", level: "rojo" }, { text: "Dolor torácico opresivo", level: "naranja" }, { text: "Crisis asmática", level: "amarillo" } ];
-            fs.writeFileSync(PRESETS_FILE, JSON.stringify(defaultPresets, null, 2));
-        }
-        observationPresets = JSON.parse(fs.readFileSync(PRESETS_FILE));
-        console.log("✔️  Datos cargados correctamente.");
-    } catch (err) { console.error("❌  Error crítico al cargar datos:", err.message); process.exit(1); }
-};
+        const activePatients = await dbAll("SELECT * FROM patients WHERE status != 'atendido' ORDER BY ordenTriage, horaLlegada");
+        // Deserializar JSON strings
+        activePatients.forEach(p => {
+            p.vitals = JSON.parse(p.vitals || '{}');
+            p.log = JSON.parse(p.log || '[]');
+            p.indications = JSON.parse(p.indications || '[]');
+            p.transferData = JSON.parse(p.transferData || '{}');
+        });
+        io.emit('update_patient_list', activePatients);
 
-// 4. FUNCIONES DE UTILIDAD
-const sortPatients = () => { patients.sort((a, b) => { if (a.ordenTriage !== b.ordenTriage) return a.ordenTriage - b.ordenTriage; return a.horaLlegada - b.horaLlegada; }); };
-const logAction = (patientId, type, details, user) => {
-    const patient = patients.find(p => p.id === patientId) || attendedHistory.find(p => p.id === patientId);
-    if (patient) {
-        if (!patient.log) patient.log = [];
-        patient.log.push({ id: crypto.randomUUID(), timestamp: Date.now(), type, user: user.fullName, details });
-        if (activeShifts[user.user]) { activeShifts[user.user].managedPatientIds.add(patientId); }
+        const attendedHistory = await dbAll("SELECT * FROM patients WHERE status = 'atendido' ORDER BY attendedAt DESC");
+        attendedHistory.forEach(p => {
+            p.vitals = JSON.parse(p.vitals || '{}');
+            p.log = JSON.parse(p.log || '[]');
+            p.indications = JSON.parse(p.indications || '[]');
+            p.transferData = JSON.parse(p.transferData || '{}');
+        });
+        io.emit('attended_history_update', attendedHistory);
+
+    } catch (error) {
+        console.error("Error al emitir el estado completo:", error);
     }
 };
 
-// 5. LÓGICA DE SOCKETS
+const logAction = async (patientId, type, details, user) => {
+    try {
+        const patient = await dbGet('SELECT log FROM patients WHERE id = ?', [patientId]);
+        if (patient) {
+            const log = JSON.parse(patient.log || '[]');
+            log.push({ id: crypto.randomUUID(), timestamp: Date.now(), type, user: user.fullName, details });
+            await dbRun('UPDATE patients SET log = ? WHERE id = ?', [JSON.stringify(log), patientId]);
+
+            if (activeShifts[user.user]) {
+                activeShifts[user.user].managedPatientIds.add(patientId);
+            }
+        }
+    } catch (error) {
+        console.error(`Error al registrar acción para paciente ${patientId}:`, error);
+    }
+};
+
+
+// 6. LÓGICA DE SOCKETS
 io.on('connection', (socket) => {
     let currentUser = null;
-    let isAuthenticated = false;
+
+    const emitAllData = async () => {
+        await broadcastFullState();
+        const presets = await dbAll('SELECT text, level FROM presets');
+        socket.emit('presets_update', presets);
+        const users = await dbAll('SELECT user, role, fullName FROM users');
+        socket.emit('users_update', users);
+    };
 
     // --- AUTENTICACIÓN ---
-    const authenticate = (user) => {
-        currentUser = user;
-        isAuthenticated = true;
-        socket.emit('auth_success', user);
-        console.log(`Usuario conectado: ${user.user} (${user.role})`);
-        socket.emit('presets_update', observationPresets);
-    };
-    socket.on('authenticate_user', ({ user, pass }) => { const foundUser = users.find(u => u.user === user && u.pass === pass); if (foundUser) authenticate(foundUser); else socket.emit('auth_fail'); });
-    socket.on('authenticate_token', (token) => { const foundUser = users.find(u => u.token === token); if (foundUser) authenticate(foundUser); else socket.emit('auth_fail'); });
+    socket.on('authenticate_user', async ({ user, pass }) => {
+        try {
+            const foundUser = await dbGet('SELECT * FROM users WHERE user = ?', [user]);
+            if (foundUser && await bcrypt.compare(pass, foundUser.pass)) {
+                currentUser = foundUser;
+                socket.emit('auth_success', foundUser);
+                console.log(`Usuario conectado: ${currentUser.user} (${currentUser.role})`);
+                await emitAllData();
+            } else {
+                socket.emit('auth_fail');
+            }
+        } catch (error) {
+            console.error("Error de autenticación:", error);
+            socket.emit('auth_fail');
+        }
+    });
     
-    socket.on('admin_login', ({pass}) => { /* ... (sin cambios) */ });
+    socket.on('authenticate_token', async (token) => {
+        try {
+            const foundUser = await dbGet('SELECT * FROM users WHERE token = ?', [token]);
+             if (foundUser) {
+                currentUser = foundUser;
+                socket.emit('auth_success', foundUser);
+                console.log(`Usuario conectado por token: ${currentUser.user} (${currentUser.role})`);
+                await emitAllData();
+            } else {
+                socket.emit('auth_fail');
+            }
+        } catch (error) {
+            console.error("Error de autenticación por token:", error);
+            socket.emit('auth_fail');
+        }
+    });
+
+    // --- LÓGICA DE PACIENTES (Refactorizada con DB) ---
+
+    // REGISTRO
+    socket.on('register_patient', async (newPatient) => {
+        if (!currentUser || currentUser.role !== 'registro') return;
+        try {
+            const { lastID } = await dbRun(
+                `INSERT INTO patients (nombre, dni, vitals, notas, nivelTriage, ordenTriage, horaLlegada, status, registeredBy, log, indications)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    newPatient.nombre, newPatient.dni, JSON.stringify(newPatient.vitals),
+                    newPatient.notas, newPatient.nivelTriage, newPatient.ordenTriage,
+                    newPatient.horaLlegada, 'en_espera', currentUser.user, '[]', '[]'
+                ]
+            );
+            await logAction(lastID, 'Registro', `Motivo: ${newPatient.notas}`, currentUser);
+            await broadcastFullState();
+        } catch (error) {
+            console.error("Error en register_patient:", error);
+        }
+    });
+    
+    // MÉDICO
+    socket.on('call_patient', async ({ id, consultorio }) => {
+        if (!currentUser || currentUser.role !== 'medico') return;
+        try {
+            await dbRun('UPDATE patients SET status = ?, consultorio = ?, doctor_user = ? WHERE id = ?', ['atendiendo', consultorio, currentUser.user, id]);
+            const patient = await dbGet('SELECT nombre FROM patients WHERE id = ?', [id]);
+            currentlyCalled = { nombre: patient.nombre, consultorio };
+            io.emit('update_call', currentlyCalled);
+            setTimeout(() => {
+                currentlyCalled = null;
+                io.emit('update_call', null);
+            }, 10000); // Llamado dura 10 segundos
+            await logAction(id, 'Llamado a Consultorio', `Llamado al consultorio ${consultorio}`, currentUser);
+            await broadcastFullState();
+        } catch (error) {
+            console.error("Error en call_patient:", error);
+        }
+    });
+
+    socket.on('update_patient_status', async ({ id, status }) => {
+        if (!currentUser || currentUser.role !== 'medico') return;
+        try {
+            await dbRun('UPDATE patients SET status = ? WHERE id = ?', [status, id]);
+            await logAction(id, 'Cambio de Estado', `Paciente pasa a: ${status}.`, currentUser);
+            await broadcastFullState();
+        } catch (error) {
+            console.error("Error en update_patient_status:", error);
+        }
+    });
+
+    socket.on('mark_as_attended', async ({ patientId }) => {
+        if (!currentUser || currentUser.role !== 'medico') return;
+        try {
+            await dbRun('UPDATE patients SET status = ?, disposition = ?, attendedAt = ? WHERE id = ?', ['atendido', 'Alta', Date.now(), patientId]);
+            await logAction(patientId, 'Alta Médica', 'Paciente dado de alta.', currentUser);
+            await broadcastFullState();
+        } catch (error) {
+            console.error("Error en mark_as_attended:", error);
+        }
+    });
+    
+    // ENFERMERÍA Y MÉDICO (Notas e Indicaciones)
+    socket.on('add_doctor_note', async ({ id, note }) => {
+        if (!currentUser || currentUser.role !== 'medico') return;
+        await logAction(id, 'Nota Médica', note, currentUser);
+        await broadcastFullState();
+    });
+    
+    socket.on('add_nurse_evolution', async ({ id, note }) => {
+         if (!currentUser || currentUser.role !== 'enfermero_guardia') return;
+        await logAction(id, 'Nota de Enfermería', note, currentUser);
+        await broadcastFullState();
+    });
+
+    socket.on('add_indication', async ({ id, text }) => {
+        if (!currentUser || currentUser.role !== 'medico') return;
+        try {
+            const patient = await dbGet('SELECT indications FROM patients WHERE id = ?', [id]);
+            const indications = JSON.parse(patient.indications || '[]');
+            const newIndication = { id: crypto.randomUUID(), text, doctor: currentUser.fullName, status: 'pendiente', timestamp: Date.now() };
+            indications.push(newIndication);
+            await dbRun('UPDATE patients SET indications = ? WHERE id = ?', [JSON.stringify(indications), id]);
+            await logAction(id, 'Indicación Médica', text, currentUser);
+            await broadcastFullState();
+        } catch(error) {
+            console.error("Error en add_indication:", error);
+        }
+    });
+    
+    socket.on('update_indication_status', async ({ patientId, indicationId }) => {
+        if (!currentUser || currentUser.role !== 'enfermero_guardia') return;
+        try {
+             const patient = await dbGet('SELECT indications FROM patients WHERE id = ?', [patientId]);
+             let indications = JSON.parse(patient.indications || '[]');
+             let indicationText = '';
+             indications = indications.map(ind => {
+                 if (ind.id === indicationId) {
+                     ind.status = 'realizada';
+                     indicationText = ind.text;
+                 }
+                 return ind;
+             });
+            await dbRun('UPDATE patients SET indications = ? WHERE id = ?', [JSON.stringify(indications), patientId]);
+            await logAction(patientId, 'Indicación Cumplida', indicationText, currentUser);
+            await broadcastFullState();
+        } catch(error){
+            console.error("Error en update_indication_status:", error);
+        }
+    });
     
     // --- GESTIÓN DE GUARDIA ---
-    socket.on('start_shift', () => { if (!isAuthenticated) return; activeShifts[currentUser.user] = { user: currentUser, startTime: Date.now(), managedPatientIds: new Set() }; });
-    socket.on('end_shift', (callback) => { if (!isAuthenticated || !activeShifts[currentUser.user]) return; const shift = activeShifts[currentUser.user]; const attendedInShift = [...attendedHistory, ...patients].filter(p => shift.managedPatientIds.has(p.id)); delete activeShifts[currentUser.user]; callback({ user: currentUser, startTime: shift.startTime, endTime: Date.now(), attendedPatients: attendedInShift }); });
-
-    // --- EVENTOS DE PACIENTES ---
-    const patientEvents = {
-        'register_patient': (newPatient) => { if (currentUser.role !== 'registro') return; newPatient.log = []; patients.push(newPatient); sortPatients(); logAction(newPatient.id, 'Registro', `Motivo: ${newPatient.notas}`, currentUser); },
+    socket.on('start_shift', () => { if (!currentUser) return; activeShifts[currentUser.user] = { user: currentUser, startTime: Date.now(), managedPatientIds: new Set() }; });
+    socket.on('end_shift', async (callback) => {
+        if (!currentUser || !activeShifts[currentUser.user]) return;
+        const shift = activeShifts[currentUser.user];
+        const ids = Array.from(shift.managedPatientIds);
         
-        // --- NUEVO: Evento de Reevaluación ---
-        'update_patient_details': ({ id, newNotes, newVitals }) => {
-            if (currentUser.role !== 'registro') return;
-            const patient = patients.find(p => p.id === id);
-            if (patient) {
-                if (newNotes) {
-                    patient.notas += `; ${newNotes}`;
-                    logAction(id, 'Reevaluación (Nota)', newNotes, currentUser);
-                }
-                if (newVitals && Object.values(newVitals).some(v => v)) {
-                    Object.assign(patient.vitals, newVitals); // Sobrescribe solo los vitales nuevos
-                    logAction(id, 'Reevaluación (Vitales)', `Nuevos vitales registrados.`, currentUser);
-                }
-            }
-        },
-
-        'update_patient_level': ({ id, newLevel }) => { /* ... (sin cambios) */ },
-        'send_to_nursing': ({ patientId }) => { /* ... (sin cambios) */ },
-        'call_patient': ({ id, consultorio }) => { /* ... (sin cambios) */ },
-        'add_doctor_note': ({ id, note }) => { if (currentUser.role !== 'medico') return; logAction(id, 'Nota Médica', note, currentUser); },
-        'add_indication': ({ id, text }) => { if (currentUser.role !== 'medico') return; const patient = patients.find(p => p.id === id); if (patient) { if (!patient.indications) patient.indications = []; const newIndication = { id: crypto.randomUUID(), text, doctor: currentUser.fullName, status: 'pendiente', timestamp: Date.now() }; patient.indications.push(newIndication); logAction(id, 'Indicación Médica', text, currentUser); } },
-        'update_indication_status': ({ patientId, indicationId }) => { /* ... (sin cambios) */ },
-        'update_patient_status': ({ id, status }) => { if (currentUser.role !== 'medico') return; const p = patients.find(p => p.id === id); if (p) { p.status = status; logAction(id, 'Cambio de Estado', `Paciente pasa a: ${status}.`, currentUser); } },
+        let attendedInShift = [];
+        if (ids.length > 0) {
+            const placeholders = ids.map(() => '?').join(',');
+            attendedInShift = await dbAll(`SELECT * FROM patients WHERE id IN (${placeholders})`, ids);
+            attendedInShift.forEach(p => {
+                p.vitals = JSON.parse(p.vitals || '{}');
+                p.log = JSON.parse(p.log || '[]');
+                p.indications = JSON.parse(p.indications || '[]');
+                p.transferData = JSON.parse(p.transferData || '{}');
+            });
+        }
         
-        // --- NUEVO: Evento de Traslado ---
-        'transfer_patient': ({ patientId, transferData }) => {
-            if (currentUser.role !== 'medico') return;
-            const patientIndex = patients.findIndex(p => p.id === patientId);
-            if (patientIndex > -1) {
-                const [patient] = patients.splice(patientIndex, 1);
-                patient.attendedAt = Date.now();
-                patient.disposition = 'Trasladado';
-                patient.transferData = transferData; // Se guarda el objeto completo
-                attendedHistory.push(patient);
-                logAction(patientId, 'Alta por Traslado', `Trasladado a ${transferData.lugar}. Receptor: ${transferData.medicoReceptor}.`, currentUser);
-            }
-        },
-        
-        'mark_as_attended': ({ patientId }) => { /* ... (sin cambios) */ },
-    };
+        delete activeShifts[currentUser.user];
+        callback({ user: currentUser, startTime: shift.startTime, endTime: Date.now(), attendedPatients: attendedInShift });
+    });
 
-    for (const eventName in patientEvents) {
-        socket.on(eventName, (data) => {
-            if (!isAuthenticated) return;
-            patientEvents[eventName](data);
-            saveData();
-            io.emit('update_patient_list', patients);
-            io.emit('attended_history_update', attendedHistory);
-        });
-    }
 
     socket.on('disconnect', () => { if (currentUser) console.log(`Usuario desconectado: ${currentUser.user}`); });
 });
 
-// 6. INICIO DEL SERVIDOR
-const DEPLOY_PORT = process.env.PORT || PORT;
-server.listen(DEPLOY_PORT, '0.0.0.0', () => {
-    loadData();
-    console.log(`✔️  Servidor SIG v3.8 escuchando en el puerto ${DEPLOY_PORT}`);
-    if (!process.env.RENDER) { open(`http://localhost:${PORT}`); }
+
+// 7. INICIO DEL SERVIDOR
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`✔️  Servidor SIG v4.0 escuchando en el puerto ${PORT}`);
+    if (!process.env.RENDER) {
+        open(`http://localhost:${PORT}`);
+    }
 });
