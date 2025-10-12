@@ -11,7 +11,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
-        .triage-button.selected { transform: scale(1.05); box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.5); }
+        .triage-button.selected, .triage-button-modal.selected { transform: scale(1.05); box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.5); }
         .dot-rojo { background-color: #ef4444; } .dot-naranja { background-color: #f97316; } .dot-amarillo { background-color: #f59e0b; }
         .dot-verde { background-color: #10b981; } .dot-azul { background-color: #3b82f6; }
     </style>
@@ -29,9 +29,33 @@
             <h2 class="text-2xl font-bold mb-4">Reevaluar Paciente: <span id="reevaluatePatientName"></span></h2>
             <form id="reevaluateForm" class="space-y-4">
                 <input type="hidden" id="reevaluatePatientId">
-                <div><label for="reevaluateNotes" class="block text-sm font-medium text-gray-700">Añadir Observación</label><textarea id="reevaluateNotes" class="w-full mt-1 px-3 py-2 border rounded-lg" rows="3"></textarea></div>
-                <div><label class="block text-sm font-medium text-gray-700">Actualizar Signos Vitales</label><div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1"><input type="text" id="reevaluateVitalTa" placeholder="TA" class="px-2 py-2 border rounded-lg text-sm"><input type="number" id="reevaluateVitalFc" placeholder="FC" class="px-2 py-2 border rounded-lg text-sm"><input type="number" step="0.1" id="reevaluateVitalTemp" placeholder="T°" class="px-2 py-2 border rounded-lg text-sm"><input type="number" id="reevaluateVitalHgt" placeholder="HGT" class="px-2 py-2 border rounded-lg text-sm"></div></div>
-                <div class="flex justify-end gap-4"><button type="button" id="closeReevaluateBtn" class="bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg">Cancelar</button><button type="submit" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">Guardar Reevaluación</button></div>
+                <div>
+                    <label for="reevaluateNotes" class="block text-sm font-medium text-gray-700">Añadir Observación</label>
+                    <textarea id="reevaluateNotes" class="w-full mt-1 px-3 py-2 border rounded-lg" rows="3"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Actualizar Signos Vitales</label>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1">
+                        <input type="text" id="reevaluateVitalTa" placeholder="TA" class="px-2 py-2 border rounded-lg text-sm">
+                        <input type="number" id="reevaluateVitalFc" placeholder="FC" class="px-2 py-2 border rounded-lg text-sm">
+                        <input type="number" step="0.1" id="reevaluateVitalTemp" placeholder="T°" class="px-2 py-2 border rounded-lg text-sm">
+                        <input type="number" id="reevaluateVitalHgt" placeholder="HGT" class="px-2 py-2 border rounded-lg text-sm">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Cambiar Nivel de Triage (Opcional)</label>
+                    <div id="reevaluateTriageButtons" class="grid grid-cols-5 gap-2">
+                        <button type="button" data-level="rojo" class="triage-button-modal text-white font-bold py-2 rounded-lg bg-red-600 text-sm">N1</button>
+                        <button type="button" data-level="naranja" class="triage-button-modal text-white font-bold py-2 rounded-lg bg-orange-500 text-sm">N2</button>
+                        <button type="button" data-level="amarillo" class="triage-button-modal text-white font-bold py-2 rounded-lg bg-yellow-500 text-sm">N3</button>
+                        <button type="button" data-level="verde" class="triage-button-modal text-white font-bold py-2 rounded-lg bg-green-600 text-sm">N4</button>
+                        <button type="button" data-level="azul" class="triage-button-modal text-white font-bold py-2 rounded-lg bg-blue-600 text-sm">N5</button>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-4 pt-4 border-t">
+                    <button type="button" id="closeReevaluateBtn" class="bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg">Cancelar</button>
+                    <button type="submit" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">Guardar Reevaluación</button>
+                </div>
             </form>
         </div>
     </div>
@@ -81,10 +105,10 @@
             const loginOverlay = document.getElementById('loginOverlay'), loginForm = document.getElementById('loginForm'), userInput = document.getElementById('userInput'), passwordInput = document.getElementById('passwordInput'), rememberMeCheck = document.getElementById('rememberMe'), loginError = document.getElementById('loginError'), appContent = document.getElementById('appContent'), triageForm = document.getElementById('triageForm'), patientNameInput = document.getElementById('patientName'), patientDniInput = document.getElementById('patientDni'), patientNotesInput = document.getElementById('patientNotes'), triageButtons = document.querySelectorAll('.triage-button'), patientList = document.getElementById('patientList'), noPatientsMessage = document.getElementById('noPatientsMessage'), currentUserSpan = document.getElementById('currentUser'), logoutBtn = document.getElementById('logoutBtn'), observationSearch = document.getElementById('observationSearch'), presetsDropdown = document.getElementById('presetsDropdown');
             const startShiftBtn = document.getElementById('startShiftBtn'), endShiftBtn = document.getElementById('endShiftBtn'), shiftActiveDisplay = document.getElementById('shiftActiveDisplay');
             const shiftPatientList = document.getElementById('shiftPatientList'), noShiftPatientsMessage = document.getElementById('noShiftPatientsMessage');
-            const reevaluateModal = document.getElementById('reevaluateModal'), reevaluateForm = document.getElementById('reevaluateForm'), closeReevaluateBtn = document.getElementById('closeReevaluateBtn'), reevaluatePatientName = document.getElementById('reevaluatePatientName'), reevaluatePatientId = document.getElementById('reevaluatePatientId');
+            const reevaluateModal = document.getElementById('reevaluateModal'), reevaluateForm = document.getElementById('reevaluateForm'), closeReevaluateBtn = document.getElementById('closeReevaluateBtn'), reevaluatePatientName = document.getElementById('reevaluatePatientName'), reevaluatePatientId = document.getElementById('reevaluatePatientId'), reevaluateTriageButtons = document.getElementById('reevaluateTriageButtons').querySelectorAll('.triage-button-modal');
             
             // --- App State ---
-            let selectedLevel = null, currentUser = null, isShiftActive = false, observationPresets = [], allPatients = [];
+            let selectedLevel = null, currentUser = null, isShiftActive = false, observationPresets = [], allPatients = [], selectedReevaluateLevel = null;
 
             // --- Authentication ---
             const token = localStorage.getItem('triageAuthToken');
@@ -104,7 +128,7 @@
                 noPatientsMessage.classList.toggle('hidden', waiting.length > 0);
                 waiting.forEach(patient => {
                     const patientDiv = document.createElement('div');
-                    patientDiv.className = 'bg-gray-50 p-4 rounded-lg shadow border-l-4 border-gray-300';
+                    patientDiv.className = `bg-gray-50 p-4 rounded-lg shadow border-l-8 dot-${patient.nivelTriage}`;
                     const vitalsDisplay = [
                         `TA: ${patient.vitals.ta || 'N/A'}`,
                         `FC: ${patient.vitals.fc || 'N/A'}`,
@@ -119,7 +143,7 @@
                                 <p class="text-sm text-gray-500">${new Date(patient.horaLlegada).toLocaleTimeString('es-ES')}</p>
                             </div>
                             <div class="flex items-center gap-2">
-                                <div class="w-4 h-4 rounded-full dot-${patient.nivelTriage}"></div>
+                                <span class="font-bold text-sm uppercase text-gray-600">${patient.nivelTriage}</span>
                             </div>
                         </div>
                         <p class="text-sm text-gray-800 mt-2 bg-gray-200 p-2 rounded"><b>Motivo:</b> ${patient.notas || ''}</p>
@@ -175,22 +199,61 @@
                     if (patient) {
                         reevaluatePatientName.textContent = patient.nombre;
                         reevaluatePatientId.value = patientId;
+                        
+                        // Cargar vitales actuales en el modal
+                        document.getElementById('reevaluateVitalTa').value = patient.vitals.ta || '';
+                        document.getElementById('reevaluateVitalFc').value = patient.vitals.fc || '';
+                        document.getElementById('reevaluateVitalTemp').value = patient.vitals.temp || '';
+                        document.getElementById('reevaluateVitalHgt').value = patient.vitals.hgt || '';
+
+                        // Marcar el nivel de triage actual
+                        selectedReevaluateLevel = null;
+                        reevaluateTriageButtons.forEach(btn => {
+                            btn.classList.remove('selected');
+                            if(btn.dataset.level === patient.nivelTriage) {
+                                btn.classList.add('selected');
+                                selectedReevaluateLevel = patient.nivelTriage;
+                            }
+                        });
+                        
                         reevaluateModal.classList.remove('hidden');
                     }
                 }
                 if (target.classList.contains('send-to-nursing-btn')) { if(confirm("¿Enviar a enfermería?")) { socket.emit('send_to_nursing', { patientId: parseInt(target.dataset.id) }); } }
             });
-            closeReevaluateBtn.addEventListener('click', () => { reevaluateModal.classList.add('hidden'); reevaluateForm.reset(); });
+
+            reevaluateTriageButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    reevaluateTriageButtons.forEach(btn => btn.classList.remove('selected'));
+                    button.classList.add('selected');
+                    selectedReevaluateLevel = button.dataset.level;
+                });
+            });
+            
+            const closeModal = () => {
+                reevaluateModal.classList.add('hidden');
+                reevaluateForm.reset();
+                selectedReevaluateLevel = null;
+                reevaluateTriageButtons.forEach(btn => btn.classList.remove('selected'));
+            };
+            
+            closeReevaluateBtn.addEventListener('click', closeModal);
+            
             reevaluateForm.addEventListener('submit', (e) => {
                 e.preventDefault();
                 const payload = {
                     id: parseInt(reevaluatePatientId.value),
                     newNotes: document.getElementById('reevaluateNotes').value.trim(),
-                    newVitals: { ta: document.getElementById('reevaluateVitalTa').value, fc: document.getElementById('reevaluateVitalFc').value, temp: document.getElementById('reevaluateVitalTemp').value, hgt: document.getElementById('reevaluateVitalHgt').value }
+                    newVitals: { 
+                        ta: document.getElementById('reevaluateVitalTa').value, 
+                        fc: document.getElementById('reevaluateVitalFc').value, 
+                        temp: document.getElementById('reevaluateVitalTemp').value, 
+                        hgt: document.getElementById('reevaluateVitalHgt').value 
+                    },
+                    newLevel: selectedReevaluateLevel
                 };
-                socket.emit('update_patient_details', payload);
-                reevaluateModal.classList.add('hidden');
-                reevaluateForm.reset();
+                socket.emit('reevaluate_patient', payload); // Usamos un nuevo evento
+                closeModal();
             });
 
             // --- Preset Logic ---
