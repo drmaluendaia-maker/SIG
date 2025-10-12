@@ -73,6 +73,11 @@
             endShiftBtn.addEventListener('click', () => { if(!confirm("¿Finalizar guardia? Se generará el reporte de su actividad.")) return; socket.emit('end_shift', (shiftData) => { generateShiftPDF(shiftData); isShiftActive = false; startShiftBtn.classList.remove('hidden'); shiftActiveDisplay.classList.add('hidden'); }); });
 
             // --- Patient Card Creation ---
+            const getTADisplay = (vitals) => {
+                if (vitals.tas && vitals.tad) return `${vitals.tas}/${vitals.tad}`;
+                return vitals.ta || 'N/A'; // Fallback for old data
+            };
+
             const createPatientCard = (patient, isHistoryView = false) => {
                 const patientCard = document.createElement('div');
                 patientCard.className = 'bg-white p-4 rounded-lg shadow-md';
@@ -88,7 +93,15 @@
                 }
 
                 let vitalsHTML = '';
-                if(patient.vitals && Object.values(patient.vitals).some(v => v)) { vitalsHTML = `<div class="mt-3 bg-gray-50 p-2 rounded-md grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">${patient.vitals.ta ? `<div><span class="font-bold">TA:</span> ${patient.vitals.ta}</div>` : ''}${patient.vitals.fc ? `<div><span class="font-bold">FC:</span> ${patient.vitals.fc}</div>` : ''}${patient.vitals.temp ? `<div><span class="font-bold">T°:</span> ${patient.vitals.temp}</div>` : ''}${patient.vitals.hgt ? `<div><span class="font-bold">HGT:</span> ${patient.vitals.hgt}</div>` : ''}</div>`; }
+                if(patient.vitals && Object.values(patient.vitals).some(v => v)) {
+                    const vitalsContent = [
+                        patient.vitals.tas || patient.vitals.tad ? `<div><span class="font-bold">TA:</span> ${getTADisplay(patient.vitals)}</div>` : '',
+                        patient.vitals.fc ? `<div><span class="font-bold">FC:</span> ${patient.vitals.fc}</div>` : '',
+                        patient.vitals.temp ? `<div><span class="font-bold">T°:</span> ${patient.vitals.temp}</div>` : '',
+                        patient.vitals.hgt ? `<div><span class="font-bold">HGT:</span> ${patient.vitals.hgt}</div>` : ''
+                    ].filter(Boolean).join('');
+                    vitalsHTML = `<div class="mt-3 bg-gray-50 p-2 rounded-md grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">${vitalsContent}</div>`;
+                }
                 
                 const createCollapsible = (title, content, color) => `<div class="mt-2 border-t pt-2"><button class="collapsible-toggle w-full text-left font-bold text-sm text-${color}-800 flex justify-between items-center p-1"><span>${title}</span><i class="fas fa-chevron-down collapsible-toggle-icon"></i></button><div class="collapsible-content pl-2 pt-2 border-l-2 border-${color}-200">${content}</div></div>`;
                 
