@@ -1,7 +1,7 @@
 // =================================================================================
 // SERVIDOR DEL SISTEMA INTEGRADO DE GUARDIA (SIG)
 // Autor: Dr. Xavier Maluenda y Gemini (Refactorizado por Programador Senior)
-// Versión: 4.8 (Flujo de Trabajo de Enfermería Mejorado)
+// Versión: 4.9 (Flujo Triage -> Enfermería Habilitado)
 // =================================================================================
 
 // 1. IMPORTACIONES Y CONFIGURACIÓN BÁSICA
@@ -158,11 +158,11 @@ const broadcastFullState = async () => {
             p.transferData = JSON.parse(p.transferData || '{}');
         });
 
-        const activePatients = allPatients.filter(p => p.status !== 'atendido');
-        const attendedHistory = allPatients.filter(p => p.status === 'atendido');
+        io.emit('update_patient_list', allPatients);
         
-        io.emit('update_patient_list', allPatients); // Enviamos todos para que cada vista filtre
+        const attendedHistory = allPatients.filter(p => p.status === 'atendido');
         io.emit('attended_history_update', attendedHistory);
+
     } catch (error) {
         console.error("Error al emitir el estado completo:", error);
     }
@@ -297,6 +297,18 @@ io.on('connection', (socket) => {
         }
     });
 
+    // NUEVO: Listener para enviar a Enfermería desde Triage
+    socket.on('send_to_nursing', async ({ patientId }) => {
+        if (!currentUser || currentUser.role !== 'registro') return;
+        try {
+            await dbRun('UPDATE patients SET status = ? WHERE id = ?', ['en_enfermeria', patientId]);
+            await logAction(patientId, 'Derivación a Enfermería', 'Paciente enviado directamente a enfermería desde triage.', currentUser);
+            await broadcastFullState();
+        } catch (error) {
+            console.error("Error en send_to_nursing:", error);
+        }
+    });
+
     socket.on('call_patient', async ({ id, consultorio }) => {
         if (!currentUser || currentUser.role !== 'medico') return;
         try {
@@ -329,7 +341,9 @@ io.on('connection', (socket) => {
     socket.on('mark_as_attended', async ({ patientId }) => {
         if (!currentUser || currentUser.role !== 'medico') return;
         try {
-            await dbRun('UPDATE patients SET status = ?, disposition = ?, attendedAt = ? WHERE id = ?', ['atendido', 'Alta', Date.now(), patientId]);
+            // No cambiamos el status a 'atendido' para que las indicaciones persistan.
+            // Solo marcamos la disposición y la fecha de atención.
+            await dbRun('UPDATE patients SET disposition = ?, attendedAt = ? WHERE id = ?', ['Alta', Date.now(), patientId]);
             await logAction(patientId, 'Alta Médica', 'Paciente dado de alta.', currentUser);
             await broadcastFullState();
         } catch (error) {
@@ -367,7 +381,7 @@ io.on('connection', (socket) => {
     socket.on('update_indication_status', async ({ patientId, indicationId }) => {
         if (!currentUser || currentUser.role !== 'enfermero_guardia') return;
         try {
-             const patient = await dbGet('SELECT indications FROM patients WHERE id = ?', [patientId]);
+             const patient = await dbGet('SELECT indications, disposition FROM patients WHERE id = ?', [patientId]);
              let indications = JSON.parse(patient.indications || '[]');
              let indicationText = '';
              indications = indications.map(ind => {
@@ -377,7 +391,17 @@ io.on('connection', (socket) => {
                  }
                  return ind;
              });
-            await dbRun('UPDATE patients SET indications = ? WHERE id = ?', [JSON.stringify(indications), patientId]);
+            
+             const allIndicationsDone = indications.every(ind => ind.status === 'realizada');
+             
+             // Si todas las indicaciones están hechas y el paciente tenía el alta, ahora sí lo marcamos como 'atendido'.
+             if (allIndicationsDone && patient.disposition === 'Alta') {
+                 await dbRun('UPDATE patients SET indications = ?, status = ? WHERE id = ?', [JSON.stringify(indications), 'atendido', patientId]);
+                 await logAction(patientId, 'Finalización de Tareas Post-Alta', 'Todas las indicaciones ambulatorias fueron cumplidas.', currentUser);
+             } else {
+                 await dbRun('UPDATE patients SET indications = ? WHERE id = ?', [JSON.stringify(indications), patientId]);
+             }
+
             await logAction(patientId, 'Indicación Cumplida', indicationText, currentUser);
             await broadcastFullState();
         } catch(error){
@@ -388,8 +412,16 @@ io.on('connection', (socket) => {
     socket.on('finalize_nursing_task', async ({ patientId }) => {
         if (!currentUser || currentUser.role !== 'enfermero_guardia') return;
         try {
-            await dbRun('UPDATE patients SET status = ? WHERE id = ?', ['en_espera', patientId]);
-            await logAction(patientId, 'Finalización Tarea Enfermería', 'Paciente devuelto a sala de espera.', currentUser);
+            // Si el paciente estaba en enfermería desde triage, se marca como atendido.
+            const patient = await dbGet('SELECT status FROM patients WHERE id = ?', [patientId]);
+            if (patient.status === 'en_enfermeria') {
+                await dbRun('UPDATE patients SET status = ?, disposition = ?, attendedAt = ? WHERE id = ?', ['atendido', 'Alta de Enfermería', Date.now(), patientId]);
+                await logAction(patientId, 'Finalización Tarea Enfermería', 'Paciente atendido y dado de alta por enfermería.', currentUser);
+            } else {
+                // Si estaba en observación, vuelve a la espera del médico.
+                await dbRun('UPDATE patients SET status = ? WHERE id = ?', ['en_espera', patientId]);
+                await logAction(patientId, 'Finalización Tarea Enfermería', 'Paciente devuelto a sala de espera.', currentUser);
+            }
             await broadcastFullState();
         } catch(error) {
             console.error("Error en finalize_nursing_task:", error);
@@ -407,7 +439,7 @@ io.on('connection', (socket) => {
 
 // 7. INICIO DEL SERVIDOR
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`✔️  Servidor SIG v4.8 escuchando en el puerto ${PORT}`);
+    console.log(`✔️  Servidor SIG v4.9 escuchando en el puerto ${PORT}`);
     if (!process.env.RENDER) {
         open(`http://localhost:${PORT}`);
     }
