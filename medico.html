@@ -6,7 +6,183 @@
     <title>Vista Médica - SIG</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"><!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vista Médica - SIG</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+    <style> 
+        body { font-family: 'Inter', sans-serif; } 
+        .dot-rojo { background-color: #ef4444; } .dot-naranja { background-color: #f97316; } .dot-amarillo { background-color: #f59e0b; } .dot-verde { background-color: #10b981; } .dot-azul { background-color: #3b82f6; } 
+        .status-atendiendo { background-color: #3b82f6; color: white; } 
+        .status-ausente { background-color: #6b7280; color: white; } 
+        .status-pre_internacion { background-color: #a855f7; color: white; } 
+        @keyframes blink { 50% { opacity: 0.6; } } 
+        .emergency-banner { animation: blink 1.5s linear infinite; } 
+        .collapsible-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+    <div id="loginOverlay" class="fixed inset-0 bg-gray-900 bg-opacity-95 z-50 flex items-center justify-center p-4"><div class="bg-white p-8 rounded-lg shadow-2xl text-center w-full max-w-sm"><h2 class="text-2xl font-bold mb-4">Acceso Médico</h2><form id="loginForm"><input type="text" id="userInput" class="w-full px-4 py-3 border rounded-lg mb-4 text-center" placeholder="Usuario Médico"><input type="password" id="passwordInput" class="w-full px-4 py-3 border rounded-lg mb-4 text-center" placeholder="••••••••"><div class="flex items-center justify-center mb-4"><input id="rememberMe" type="checkbox" class="h-4 w-4 text-indigo-600 rounded"><label for="rememberMe" class="ml-2 block text-sm text-gray-900">Recordar</label></div><button type="submit" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg">Ingresar</button><p id="loginError" class="text-red-500 text-sm mt-2 h-4"></p></form></div></div>
+    <div id="historyModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 z-40 flex items-center justify-center p-4"><div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-4xl"><div class="flex justify-between items-center mb-4"><h2 class="text-2xl font-bold">Ficha del Paciente</h2><button id="closeHistoryBtn" class="text-2xl font-bold text-gray-500 hover:text-gray-800">&times;</button></div><div id="historyResults" class="max-h-[80vh] overflow-y-auto space-y-4 pr-2"></div></div></div>
+    
+    <div id="appContent" class="hidden opacity-0 transition-opacity duration-500">
+        <header class="bg-white shadow-md">
+            <div class="container mx-auto p-4 flex justify-between items-center flex-wrap gap-4">
+                 <div id="shiftControls" class="flex items-center gap-4">
+                    <button id="startShiftBtn" class="bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Iniciar Guardia</button>
+                    <div id="shiftActiveDisplay" class="hidden flex items-center gap-4">
+                        <span class="text-green-600 font-bold">GUARDIA ACTIVA</span>
+                        <button id="endShiftBtn" class="bg-red-600 text-white font-bold py-2 px-4 rounded-lg">Finalizar y Exportar</button>
+                    </div>
+                </div>
+                <div class="flex gap-4 items-center">
+                    <span id="currentUser" class="text-sm text-gray-600 mr-4 font-bold"></span>
+                    <button id="logoutBtn" class="text-sm text-gray-600 hover:text-black font-semibold">Cerrar Sesión</button>
+                </div>
+            </div>
+        </header>
+        
+        <main class="container mx-auto p-8">
+            <div id="attendingSection" class="mb-12"><h2 class="text-3xl font-bold text-center mb-6 text-blue-700">Atendiendo Actualmente</h2><div id="attendingPatientCard" class="space-y-4"><p class="text-center text-gray-500">Ningún paciente en consultorio.</p></div></div>
+            <div id="preAdmissionSection" class="mb-12"><h2 class="text-3xl font-bold text-center mb-6 text-purple-700">Pacientes en Observación</h2><div id="preAdmissionList" class="grid grid-cols-1 md:grid-cols-2 gap-6"><p id="noPreAdmissionMessage" class="text-center text-gray-500 md:col-span-2">No hay pacientes en observación.</p></div></div>
+            <h1 class="text-4xl font-bold text-center mb-8">Lista de Pacientes en Espera</h1><div id="patientList" class="grid grid-cols-1 md:grid-cols-2 gap-6"><p id="noPatientsMessage" class="text-center text-gray-500 mt-12 text-xl md:col-span-2">No hay pacientes en espera.</p></div>
+        </main>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const socket = io();
+            // --- DOM Elements ---
+            const loginOverlay = document.getElementById('loginOverlay'), loginForm = document.getElementById('loginForm'), userInput = document.getElementById('userInput'), passwordInput = document.getElementById('passwordInput'), rememberMeCheck = document.getElementById('rememberMe'), loginError = document.getElementById('loginError'), appContent = document.getElementById('appContent'), patientListContainer = document.getElementById('patientList'), preAdmissionListContainer = document.getElementById('preAdmissionList'), attendingPatientCardContainer = document.getElementById('attendingPatientCard'), noPatientsMessage = document.getElementById('noPatientsMessage'), noPreAdmissionMessage = document.getElementById('noPreAdmissionMessage'), historyModal = document.getElementById('historyModal'), historyResults = document.getElementById('historyResults'), closeHistoryBtn = document.getElementById('closeHistoryBtn'), logoutBtn = document.getElementById('logoutBtn'), currentUserSpan = document.getElementById('currentUser');
+            const startShiftBtn = document.getElementById('startShiftBtn'), endShiftBtn = document.getElementById('endShiftBtn'), shiftActiveDisplay = document.getElementById('shiftActiveDisplay');
+
+            // --- App State ---
+            let synth, currentUser = null, isShiftActive = false, fullPatientList = [];
+
+            // --- Authentication ---
+            const token = localStorage.getItem('triageAuthToken');
+            if (token) socket.emit('authenticate_token', token);
+            loginForm.addEventListener('submit', (e) => { e.preventDefault(); if (typeof Tone !== 'undefined' && !synth) { Tone.start(); synth = new Tone.Synth().toDestination(); } socket.emit('authenticate_user', { user: userInput.value, pass: passwordInput.value }); });
+            socket.on('auth_success', (userData) => { if (userData.role === 'medico') { if (rememberMeCheck.checked) { localStorage.setItem('triageAuthToken', userData.token); } currentUser = userData; loginOverlay.style.display = 'none'; appContent.classList.remove('hidden', 'opacity-0'); currentUserSpan.textContent = `Dr/a. ${userData.fullName}`; } else { loginError.textContent = 'Acceso no autorizado.'; } });
+            socket.on('auth_fail', () => { localStorage.removeItem('triageAuthToken'); loginError.textContent = 'Credenciales incorrectas.'; });
+            logoutBtn.addEventListener('click', () => { if(isShiftActive){ alert("Debe finalizar su guardia antes de cerrar sesión."); return; } localStorage.removeItem('triageAuthToken'); location.reload(); });
+
+            // --- Shift Management ---
+            startShiftBtn.addEventListener('click', () => { socket.emit('start_shift'); isShiftActive = true; startShiftBtn.classList.add('hidden'); shiftActiveDisplay.classList.remove('hidden'); });
+            endShiftBtn.addEventListener('click', () => { if(!confirm("¿Finalizar guardia? Se generará el reporte de su actividad.")) return; socket.emit('end_shift', (shiftData) => { generateShiftPDF(shiftData); isShiftActive = false; startShiftBtn.classList.remove('hidden'); shiftActiveDisplay.classList.add('hidden'); }); });
+
+            // --- Patient Card Creation ---
+            const createPatientCard = (patient, isHistoryView = false) => {
+                const patientCard = document.createElement('div');
+                patientCard.className = 'bg-white p-4 rounded-lg shadow-md';
+                let actionButtons = '', dispositionButtons = '';
+                if (!isHistoryView) {
+                    if (['en_espera', 'ausente', 'pre_internacion'].includes(patient.status)) {
+                        actionButtons = `<button data-id="${patient.id}" data-consultorio="1" class="call-btn bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-3 rounded text-sm"><i class="fas fa-volume-up mr-2"></i>Llamar</button>`;
+                    }
+                    if (['atendiendo', 'pre_internacion'].includes(patient.status)) {
+                        dispositionButtons = `<button data-id="${patient.id}" class="pre-admission-btn bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 px-3 rounded text-sm">A Observación</button><button data-id="${patient.id}" class="attended-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-3 rounded text-sm">Dar de Alta</button>`;
+                    }
+                }
+                let vitalsHTML = '';
+                if(patient.vitals && Object.values(patient.vitals).some(v => v)) { vitalsHTML = `<div class="mt-3 bg-gray-50 p-2 rounded-md grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">${patient.vitals.ta ? `<div><span class="font-bold">TA:</span> ${patient.vitals.ta}</div>` : ''}${patient.vitals.fc ? `<div><span class="font-bold">FC:</span> ${patient.vitals.fc}</div>` : ''}${patient.vitals.temp ? `<div><span class="font-bold">T°:</span> ${patient.vitals.temp}</div>` : ''}${patient.vitals.hgt ? `<div><span class="font-bold">HGT:</span> ${patient.vitals.hgt}</div>` : ''}</div>`; }
+                const createCollapsible = (title, content, color) => `<div class="mt-2 border-t pt-2"><button class="collapsible-toggle w-full text-left font-bold text-sm text-${color}-800 flex justify-between items-center p-1"><span>${title}</span><i class="fas fa-chevron-down collapsible-toggle-icon"></i></button><div class="collapsible-content pl-2 pt-2 border-l-2 border-${color}-200">${content}</div></div>`;
+                
+                // --- Lógica de Ficha Cronológica ---
+                const logContent = (patient.log || []).map(entry => {
+                    const time = new Date(entry.timestamp).toLocaleString('es-ES');
+                    let color = 'text-gray-700';
+                    if (entry.type.includes('Médica')) color = 'text-blue-700';
+                    if (entry.type.includes('Enfermería')) color = 'text-yellow-700';
+                    return `<div class="text-xs p-2 my-1 border-b"><p class="font-semibold ${color}">${entry.type}</p><p class="text-gray-800">${entry.details}</p><p class="text-right text-gray-500 text-xs italic">${entry.user} - ${time}</p></div>`;
+                }).join('');
+
+                patientCard.innerHTML = `
+                    <div class="flex items-start justify-between">
+                        <div class="flex items-start gap-4"><div class="w-3 h-3 rounded-full dot-${patient.nivelTriage} mt-2 flex-shrink-0"></div>
+                            <div class="flex-grow">
+                                <p class="font-bold text-xl">${patient.nombre}</p><p class="text-sm text-gray-500">Ingreso: ${new Date(patient.horaLlegada).toLocaleString('es-ES')}</p>${vitalsHTML}
+                            </div>
+                        </div>
+                        <div>${isHistoryView ? '' : `<button data-id="${patient.id}" class="history-btn text-xs bg-gray-200 text-gray-800 px-2 py-1 rounded">Ver Ficha</button>`}</div>
+                    </div>
+                    <div class="flex items-center gap-2 mt-4 pl-7 flex-wrap">${actionButtons}</div>
+                    ${isHistoryView ? createCollapsible('Cronología Completa', logContent || 'Sin eventos.', 'gray') : ''}
+                    ${createCollapsible('Indicaciones', (patient.indications?.map(ind => `<div class="text-xs p-2 rounded mt-1 ${ind.status === 'realizada' ? 'bg-green-100' : 'bg-purple-50'}"><p class="${ind.status === 'realizada' ? 'line-through text-gray-500' : ''}">${ind.text}</p><p class="text-right font-semibold ${ind.status === 'realizada' ? 'text-green-800' : 'text-purple-800'}">- ${ind.doctor}</p></div>`).join('') || '<p class="text-xs text-gray-500">Sin indicaciones.</p>') + (isHistoryView ? '' : `<form class="add-indication-form mt-2 flex gap-2" data-id="${patient.id}"><textarea class="w-full text-sm border rounded p-1" rows="2"></textarea><button type="submit" class="bg-purple-600 text-white rounded px-3 text-sm font-bold">Indicar</button></form>`), 'purple')}
+                    ${isHistoryView ? '' : `<form class="add-note-form mt-2 flex gap-2" data-id="${patient.id}"><textarea class="w-full text-sm border rounded p-1" rows="2" placeholder="Añadir nota médica..."></textarea><button type="submit" class="bg-blue-500 text-white rounded px-3 text-sm font-bold">Guardar Nota</button></form>`}
+                    <div class="flex items-center gap-2 mt-4 pt-4 border-t pl-7 flex-wrap">${dispositionButtons}</div>`;
+                return patientCard;
+            };
+
+            // --- List Rendering ---
+            function renderAllLists(patientsAndHistory) {
+                if (!currentUser) return;
+                fullPatientList = patientsAndHistory; // Guardar la lista completa
+                const activePatients = patientsAndHistory.filter(p => p.disposition === undefined);
+
+                const attendingPatient = activePatients.find(p => p.status === 'atendiendo' && p.doctor_user === currentUser.user);
+                const preAdmissionPatients = activePatients.filter(p => p.status === 'pre_internacion');
+                const waitingPatients = activePatients.filter(p => p.status === 'en_espera' || p.status === 'ausente');
+                
+                attendingPatientCardContainer.innerHTML = attendingPatient ? '' : '<p class="text-center text-gray-500">Ningún paciente en consultorio.</p>';
+                if (attendingPatient) attendingPatientCardContainer.appendChild(createPatientCard(attendingPatient));
+                preAdmissionListContainer.innerHTML = preAdmissionPatients.length > 0 ? '' : '<p class="text-center text-gray-500 md:col-span-2">No hay pacientes en observación.</p>';
+                preAdmissionPatients.forEach(p => preAdmissionListContainer.appendChild(createPatientCard(p)));
+                patientListContainer.innerHTML = waitingPatients.length > 0 ? '' : '<p class="text-center text-gray-500 mt-12 text-xl md:col-span-2">No hay pacientes en espera.</p>';
+                waitingPatients.forEach(p => patientListContainer.appendChild(createPatientCard(p)));
+            }
+
+            // --- Event Handlers & Modals ---
+            appContent.addEventListener('click', (e) => {
+                const target = e.target; const patientId = parseInt(target.closest('[data-id]')?.dataset.id || target.dataset.id);
+                if (!patientId && !target.matches('.collapsible-toggle, .collapsible-toggle *')) return;
+
+                if (target.matches('.call-btn')) socket.emit('call_patient', { id: patientId, consultorio: target.dataset.consultorio });
+                if (target.matches('.attended-btn')) socket.emit('mark_as_attended', { patientId: patientId });
+                if (target.matches('.pre-admission-btn')) socket.emit('update_patient_status', { id: patientId, status: 'pre_internacion' });
+                if (target.matches('.history-btn')) { const patient = fullPatientList.find(p => p.id === patientId); if(patient) { historyResults.innerHTML = ''; historyResults.appendChild(createPatientCard(patient, true)); historyModal.classList.remove('hidden'); } }
+                if (target.matches('.collapsible-toggle, .collapsible-toggle *')) { const button = target.closest('.collapsible-toggle'); const content = button.nextElementSibling; button.querySelector('.collapsible-toggle-icon').classList.toggle('rotate-180'); content.style.maxHeight = content.style.maxHeight ? null : content.scrollHeight + "px"; }
+            });
+            appContent.addEventListener('submit', (e) => { e.preventDefault(); const form = e.target; const patientId = parseInt(form.dataset.id); const textarea = form.querySelector('textarea'); const text = textarea.value.trim(); if (!text) return; if (form.matches('.add-note-form')) socket.emit('add_doctor_note', { id: patientId, note: text }); if (form.matches('.add-indication-form')) socket.emit('add_indication', { id: patientId, text: text }); textarea.value = ''; });
+            closeHistoryBtn.addEventListener('click', () => { historyModal.classList.add('hidden'); });
+
+            // --- PDF Generation ---
+            function generateShiftPDF(shiftData) {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                doc.setFontSize(16); doc.text("Reporte de Guardia Médica", 14, 22);
+                doc.setFontSize(11);
+                doc.text(`Médico: ${shiftData.user.fullName}`, 14, 30);
+                doc.text(`Inicio: ${new Date(shiftData.startTime).toLocaleString('es-ES')} | Fin: ${new Date(shiftData.endTime).toLocaleString('es-ES')}`, 14, 36);
+                
+                if (shiftData.attendedPatients.length === 0) { doc.text("No se gestionaron pacientes durante esta guardia.", 14, 55); } 
+                else {
+                    shiftData.attendedPatients.forEach((p, index) => {
+                        if (index > 0) doc.addPage();
+                        doc.setFontSize(14); doc.text(`Paciente #${index + 1}: ${p.nombre}`, 14, 20);
+                        const body = (p.log || []).map(entry => [ new Date(entry.timestamp).toLocaleTimeString('es-ES'), entry.type, entry.details, entry.user ]);
+                        doc.autoTable({ startY: 25, head: [['Hora', 'Tipo', 'Detalle', 'Usuario']], body, headStyles: { fillColor: [41, 128, 185] } });
+                    });
+                }
+                doc.save(`Reporte_Guardia_${shiftData.user.user}_${new Date().toLocaleDateString('es-ES').replace(/\//g, '-')}.pdf`);
+            }
+            
+            // --- Socket Listeners ---
+            socket.on('update_patient_list', (activePatients) => { renderAllLists([...activePatients, ...window.attendedHistoryData || []]); });
+            socket.on('attended_history_update', (history) => { window.attendedHistoryData = history; renderAllLists([...(fullPatientList.filter(p=>p.disposition===undefined)), ...history]); });
+        });
+    </script>
+</body>
+</html>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
     <style> 
@@ -172,3 +348,4 @@
     </script>
 </body>
 </html>
+
