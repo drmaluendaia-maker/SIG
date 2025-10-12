@@ -1,7 +1,7 @@
 // =================================================================================
 // SERVIDOR DEL SISTEMA INTEGRADO DE GUARDIA (SIG)
 // Autor: Dr. Xavier Maluenda y Gemini (Refactorizado por Programador Senior)
-// Versión: 4.6 (Soporte para Reevaluación Completa)
+// Versión: 4.7 (Soporte para TAS/TAD)
 // =================================================================================
 
 // 1. IMPORTACIONES Y CONFIGURACIÓN BÁSICA
@@ -275,7 +275,8 @@ io.on('connection', (socket) => {
 
             const currentVitals = JSON.parse(patient.vitals || '{}');
             const updatedVitals = {
-                ta: newVitals.ta || currentVitals.ta,
+                tas: newVitals.tas || currentVitals.tas,
+                tad: newVitals.tad || currentVitals.tad,
                 fc: newVitals.fc || currentVitals.fc,
                 temp: newVitals.temp || currentVitals.temp,
                 hgt: newVitals.hgt || currentVitals.hgt,
@@ -491,7 +492,7 @@ io.on('connection', (socket) => {
 
 // 7. INICIO DEL SERVIDOR
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`✔️  Servidor SIG v4.6 escuchando en el puerto ${PORT}`);
+    console.log(`✔️  Servidor SIG v4.7 escuchando en el puerto ${PORT}`);
     if (!process.env.RENDER) {
         open(`http://localhost:${PORT}`);
     }
