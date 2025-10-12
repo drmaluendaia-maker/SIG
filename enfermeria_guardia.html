@@ -38,10 +38,19 @@
             </div>
         </header>
 
-        <main class="container mx-auto p-8">
-            <h2 class="text-3xl font-bold text-center mb-6 text-purple-700">Pacientes con Tareas de Enfermería</h2>
-            <div id="patientTaskList" class="space-y-6 max-w-4xl mx-auto">
-                <p id="noPatientsMessage" class="text-center text-gray-500 text-xl mt-12">No hay pacientes que requieran atención de enfermería.</p>
+        <main class="container mx-auto p-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div>
+                <h2 class="text-3xl font-bold text-center mb-6 text-purple-700">Pacientes con Tareas Activas</h2>
+                <div id="patientTaskList" class="space-y-6">
+                    <p id="noPatientsMessage" class="text-center text-gray-500 text-xl mt-12">No hay pacientes que requieran atención.</p>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-2xl p-8 self-start">
+                <h2 class="text-3xl font-bold text-center mb-6">Pacientes Atendidos en mi Guardia</h2>
+                <div id="shiftPatientList" class="space-y-2 max-h-[80vh] overflow-y-auto pr-2">
+                    <p id="noShiftPatientsMessage" class="text-center text-gray-500 mt-8">No has atendido pacientes en esta guardia.</p>
+                </div>
             </div>
         </main>
     </div>
@@ -53,9 +62,10 @@
             // --- DOM Elements ---
             const loginOverlay = document.getElementById('loginOverlay'), loginForm = document.getElementById('loginForm'), userInput = document.getElementById('userInput'), passwordInput = document.getElementById('passwordInput'), rememberMeCheck = document.getElementById('rememberMe'), loginError = document.getElementById('loginError'), appContent = document.getElementById('appContent'), patientTaskListContainer = document.getElementById('patientTaskList'), noPatientsMessage = document.getElementById('noPatientsMessage'), currentUserSpan = document.getElementById('currentUser'), logoutBtn = document.getElementById('logoutBtn');
             const startShiftBtn = document.getElementById('startShiftBtn'), endShiftBtn = document.getElementById('endShiftBtn'), shiftActiveDisplay = document.getElementById('shiftActiveDisplay');
+            const shiftPatientList = document.getElementById('shiftPatientList'), noShiftPatientsMessage = document.getElementById('noShiftPatientsMessage');
 
             // --- App State ---
-            let currentUser = null, isShiftActive = false;
+            let currentUser = null, isShiftActive = false, allPatients = [];
 
             // --- Authentication ---
             const token = localStorage.getItem('triageAuthToken');
@@ -66,8 +76,23 @@
             logoutBtn.addEventListener('click', () => { if(isShiftActive){ alert("Debe finalizar su guardia antes de cerrar sesión."); return; } localStorage.removeItem('triageAuthToken'); location.reload(); });
             
             // --- Shift Management ---
-            startShiftBtn.addEventListener('click', () => { socket.emit('start_shift'); isShiftActive = true; startShiftBtn.classList.add('hidden'); shiftActiveDisplay.classList.remove('hidden'); });
-            endShiftBtn.addEventListener('click', () => { if(!confirm("¿Finalizar guardia? Se generará el reporte de su actividad.")) return; socket.emit('end_shift', (shiftData) => { generateShiftPDF(shiftData); isShiftActive = false; startShiftBtn.classList.remove('hidden'); shiftActiveDisplay.classList.add('hidden'); }); });
+            startShiftBtn.addEventListener('click', () => { 
+                socket.emit('start_shift'); 
+                isShiftActive = true; 
+                startShiftBtn.classList.add('hidden'); 
+                shiftActiveDisplay.classList.remove('hidden');
+                renderShiftHistory();
+            });
+            endShiftBtn.addEventListener('click', () => { 
+                if(!confirm("¿Finalizar guardia? Se generará el reporte de su actividad.")) return; 
+                socket.emit('end_shift', (shiftData) => { 
+                    generateShiftPDF(shiftData); 
+                    isShiftActive = false; 
+                    startShiftBtn.classList.remove('hidden'); 
+                    shiftActiveDisplay.classList.add('hidden'); 
+                    renderShiftHistory();
+                }); 
+            });
 
             // --- Patient Card Creation ---
             const getTADisplay = (vitals) => {
@@ -100,7 +125,6 @@
                     vitalsHTML = `<div class="mt-2 text-xs text-gray-600">${vitalsContent}</div>`;
                 }
                 
-                // Botón Finalizar Tarea: solo si está en observación y no hay indicaciones pendientes
                 let finalizeButton = '';
                 if (patient.status === 'pre_internacion' && pendingIndications.length === 0) {
                     finalizeButton = `<div class="mt-4 border-t pt-3 flex justify-end"><button data-id="${patient.id}" class="finalize-task-btn bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Finalizar Tarea y Devolver a Espera</button></div>`;
@@ -128,8 +152,8 @@
             }
 
             // --- Rendering & Event Handlers ---
-            function renderPatientTaskList(allPatients) {
-                // El paciente aparece si tiene indicaciones pendientes O si su estado es 'pre_internacion'
+            function renderAllLists(patients) {
+                allPatients = patients;
                 const patientsForNursing = allPatients.filter(p => 
                     p.status !== 'atendido' && 
                     (p.status === 'pre_internacion' || (p.indications && p.indications.some(i => i.status === 'pendiente')))
@@ -140,16 +164,45 @@
                 if (patientsForNursing.length > 0) { 
                     patientsForNursing.forEach(p => patientTaskListContainer.appendChild(createPatientCard(p))); 
                 }
+                renderShiftHistory();
+            }
+
+            function renderShiftHistory() {
+                if (!isShiftActive || !currentUser) {
+                    shiftPatientList.innerHTML = '';
+                    noShiftPatientsMessage.classList.remove('hidden');
+                    return;
+                }
+                
+                const myShiftPatients = allPatients.filter(p => (p.log || []).some(l => l.user === currentUser.fullName && (l.type === 'Nota de Enfermería' || l.type === 'Indicación Cumplida')));
+
+                shiftPatientList.innerHTML = '';
+                noShiftPatientsMessage.classList.toggle('hidden', myShiftPatients.length > 0);
+                myShiftPatients.forEach(p => {
+                    const patientDiv = document.createElement('div');
+                    patientDiv.className = 'bg-gray-100 p-3 rounded-md border-l-4 border-gray-400';
+                    
+                    const myInterventions = (p.log || [])
+                        .filter(l => l.user === currentUser.fullName && (l.type === 'Nota de Enfermería' || l.type === 'Indicación Cumplida'))
+                        .map(l => `<p class="text-xs pl-2">- ${l.details} <span class="text-gray-500">(${new Date(l.timestamp).toLocaleTimeString('es-ES')})</span></p>`).join('');
+
+                    patientDiv.innerHTML = `
+                        <div>
+                            <div class="flex justify-between items-start">
+                                <div><p class="font-bold">${p.nombre}</p></div>
+                                <div class="w-3 h-3 rounded-full dot-${p.nivelTriage}"></div>
+                            </div>
+                             ${myInterventions ? `<div class="mt-1"><p class="text-xs font-semibold text-gray-600">Mis Intervenciones:</p>${myInterventions}</div>` : ''}
+                        </div>`;
+                    shiftPatientList.appendChild(patientDiv);
+                });
             }
             
-            socket.on('update_patient_list', renderPatientTaskList);
+            socket.on('update_patient_list', renderAllLists);
             
             appContent.addEventListener('click', (e) => { 
                 if (e.target.classList.contains('complete-indication-btn')) { 
-                    socket.emit('update_indication_status', { 
-                        patientId: parseInt(e.target.dataset.patientId), 
-                        indicationId: e.target.dataset.indicationId 
-                    }); 
+                    socket.emit('update_indication_status', { patientId: parseInt(e.target.dataset.patientId), indicationId: e.target.dataset.indicationId }); 
                 }
                 if (e.target.classList.contains('finalize-task-btn')) {
                     if (confirm("¿Seguro que desea finalizar las tareas de este paciente y devolverlo a la sala de espera?")) {
