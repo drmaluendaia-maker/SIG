@@ -34,8 +34,8 @@
                     <input type="text" id="editFullName" required class="mt-1 w-full px-3 py-2 border rounded-md">
                 </div>
                 <div class="mb-4">
-                    <label for="editPassword" class="block text-sm font-medium text-gray-700">Nueva Contraseña</label>
-                    <input type="text" id="editPassword" required class="mt-1 w-full px-3 py-2 border rounded-md">
+                    <label for="editPassword" class="block text-sm font-medium text-gray-700">Nueva Contraseña (dejar en blanco para no cambiar)</label>
+                    <input type="text" id="editPassword" class="mt-1 w-full px-3 py-2 border rounded-md">
                 </div>
                 <div class="mb-6">
                     <label for="editRole" class="block text-sm font-medium text-gray-700">Rol del Usuario</label>
@@ -85,9 +85,18 @@
             const loginOverlay = document.getElementById('loginOverlay'), loginForm = document.getElementById('loginForm'), passwordInput = document.getElementById('passwordInput'), loginError = document.getElementById('loginError'), appContent = document.getElementById('appContent'), addUserForm = document.getElementById('addUserForm'), userList = document.getElementById('userList'), editUserModal = document.getElementById('editUserModal'), editUserForm = document.getElementById('editUserForm'), cancelEditBtn = document.getElementById('cancelEditBtn'), addPresetForm = document.getElementById('addPresetForm'), newPresetInput = document.getElementById('newPresetInput'), newPresetLevel = document.getElementById('newPresetLevel'), presetList = document.getElementById('presetList'), editPresetModal = document.getElementById('editPresetModal'), editPresetForm = document.getElementById('editPresetForm'), cancelEditPresetBtn = document.getElementById('cancelEditPresetBtn');
             
             // --- Authentication ---
-            loginForm.addEventListener('submit', (e) => { e.preventDefault(); socket.emit('admin_login', { pass: passwordInput.value }); });
-            socket.on('admin_auth_success', () => { loginOverlay.style.display = 'none'; appContent.classList.remove('hidden', 'opacity-0'); });
-            socket.on('auth_fail', () => { loginError.textContent = 'Contraseña incorrecta.'; });
+            loginForm.addEventListener('submit', (e) => { 
+                e.preventDefault(); 
+                // LIMPIEZA: Usamos .trim() para eliminar espacios accidentales
+                socket.emit('admin_login', { pass: passwordInput.value.trim() }); 
+            });
+            socket.on('admin_auth_success', () => { 
+                loginOverlay.style.display = 'none'; 
+                appContent.classList.remove('hidden', 'opacity-0'); 
+            });
+            socket.on('auth_fail', () => { 
+                loginError.textContent = 'Contraseña incorrecta.'; 
+            });
 
             // --- User Management ---
             const renderUsers = (users) => {
@@ -95,7 +104,7 @@
                 users.forEach(user => {
                     const userDiv = document.createElement('div');
                     userDiv.className = 'bg-gray-50 p-3 rounded flex items-center justify-between';
-                    userDiv.innerHTML = `<div><p class="font-bold">${user.fullName} <span class="text-xs font-normal text-gray-500">(${user.role})</span></p><p class="text-sm text-gray-600">Usuario: <span class="font-mono">${user.user}</span></p></div><div class="flex gap-2"><button data-username="${user.user}" data-fullname="${user.fullName}" data-password="${user.pass}" data-role="${user.role}" class="edit-btn text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Editar</button><button data-username="${user.user}" class="delete-btn text-xs bg-red-100 text-red-800 px-2 py-1 rounded">Eliminar</button></div>`;
+                    userDiv.innerHTML = `<div><p class="font-bold">${user.fullName} <span class="text-xs font-normal text-gray-500">(${user.role})</span></p><p class="text-sm text-gray-600">Usuario: <span class="font-mono">${user.user}</span></p></div><div class="flex gap-2"><button data-username="${user.user}" data-fullname="${user.fullName}" data-password="" data-role="${user.role}" class="edit-btn text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Editar</button><button data-username="${user.user}" class="delete-btn text-xs bg-red-100 text-red-800 px-2 py-1 rounded">Eliminar</button></div>`;
                     userList.appendChild(userDiv);
                 });
             };
@@ -109,8 +118,8 @@
                 if (target.classList.contains('edit-btn')) {
                     document.getElementById('editUsername').value = target.dataset.username;
                     document.getElementById('editFullName').value = target.dataset.fullname;
-                    document.getElementById('editPassword').value = target.dataset.password;
-                    document.getElementById('editRole').value = target.dataset.role; // Cargar el rol actual
+                    document.getElementById('editPassword').value = ''; // Campo de contraseña vacío
+                    document.getElementById('editRole').value = target.dataset.role;
                     editUserModal.classList.remove('hidden');
                 }
             });
@@ -123,7 +132,7 @@
                     username: document.getElementById('editUsername').value, 
                     newFullName: document.getElementById('editFullName').value, 
                     newPassword: document.getElementById('editPassword').value,
-                    newRole: document.getElementById('editRole').value // Enviar el nuevo rol
+                    newRole: document.getElementById('editRole').value
                 };
                 socket.emit('edit_user', updatedUser);
                 editUserModal.classList.add('hidden');
