@@ -78,64 +78,69 @@ io.on('connection', (socket) => {
     let currentUser = null;
     let isAuthenticated = false;
 
-    // --- AUTENTICACIÓN ---
+    // --- AUTENTICACIÓN PARA ROLES ESTÁNDAR ---
     const authenticate = (user) => {
         currentUser = user;
         isAuthenticated = true;
         socket.emit('auth_success', user);
         console.log(`Usuario conectado: ${user.user} (${user.role})`);
         socket.emit('presets_update', observationPresets);
+        setupStandardEventListeners(); // Activa los listeners para este usuario
     };
     socket.on('authenticate_user', ({ user, pass }) => { const foundUser = users.find(u => u.user === user && u.pass === pass); if (foundUser) authenticate(foundUser); else socket.emit('auth_fail'); });
     socket.on('authenticate_token', (token) => { const foundUser = users.find(u => u.token === token); if (foundUser) authenticate(foundUser); else socket.emit('auth_fail'); });
     
-    // --- LÓGICA DE ADMIN (Restaurada) ---
+    // --- AUTENTICACIÓN PARA ROL DE ADMIN ---
     socket.on('admin_login', ({pass}) => {
         if (pass === ADMIN_MASTER_PASS) {
             currentUser = { role: 'admin', fullName: 'SuperAdmin' };
             isAuthenticated = true;
             socket.emit('admin_auth_success', {});
+            setupAdminEventListeners(); // Activa los listeners de admin
             socket.emit('users_update', users);
             socket.emit('presets_update', observationPresets);
         } else {
             socket.emit('auth_fail');
         }
     });
-    
-    const hasAdminPermission = () => isAuthenticated && currentUser && currentUser.role === 'admin';
-    socket.on('add_user', (newUser) => { if (hasAdminPermission() && newUser.user && newUser.pass) { if (!users.some(u => u.user === newUser.user)) { newUser.token = crypto.randomBytes(16).toString('hex'); users.push(newUser); saveUsers(); io.emit('users_update', users); } } });
-    socket.on('delete_user', (username) => { if (hasAdminPermission() && username) { users = users.filter(u => u.user !== username); saveUsers(); io.emit('users_update', users); } });
-    socket.on('edit_user', ({ username, newFullName, newPassword, newRole }) => { if (hasAdminPermission() && username) { const userIndex = users.findIndex(u => u.user === username); if (userIndex > -1) { users[userIndex].fullName = newFullName; users[userIndex].pass = newPassword; users[userIndex].role = newRole; saveUsers(); io.emit('users_update', users); } } });
-    socket.on('add_preset', (newPreset) => { if (hasAdminPermission() && newPreset.text && newPreset.level) { if (!observationPresets.some(p => p.text === newPreset.text)) { observationPresets.push(newPreset); savePresets(); io.emit('presets_update', observationPresets); } } });
-    socket.on('delete_preset', (presetText) => { if (hasAdminPermission() && presetText) { observationPresets = observationPresets.filter(p => p.text !== presetText); savePresets(); io.emit('presets_update', observationPresets); } });
-    socket.on('edit_preset', ({ oldText, newText, newLevel }) => { if (hasAdminPermission()) { const presetIndex = observationPresets.findIndex(p => p.text === oldText); if (presetIndex > -1) { observationPresets[presetIndex] = { text: newText, level: newLevel }; savePresets(); io.emit('presets_update', observationPresets); } } });
 
-    // --- GESTIÓN DE GUARDIA ---
-    socket.on('start_shift', () => { if (!isAuthenticated) return; activeShifts[currentUser.user] = { user: currentUser, startTime: Date.now(), managedPatientIds: new Set() }; console.log(`Guardia INICIADA por ${currentUser.user}`); });
-    socket.on('end_shift', (callback) => { if (!isAuthenticated || !activeShifts[currentUser.user]) return; const shift = activeShifts[currentUser.user]; const attendedInShift = [...attendedHistory, ...patients].filter(p => shift.managedPatientIds.has(p.id)); delete activeShifts[currentUser.user]; console.log(`Guardia FINALIZADA por ${currentUser.user}`); callback({ user: currentUser, startTime: shift.startTime, endTime: Date.now(), attendedPatients: attendedInShift }); });
-
-    // --- EVENTOS DE PACIENTES ---
-    const patientEvents = {
-        'register_patient': (newPatient) => { if (currentUser.role !== 'registro') return; newPatient.log = []; patients.push(newPatient); sortPatients(); logAction(newPatient.id, 'Registro', `Paciente registrado con nivel ${newPatient.nivelTriage}.`, currentUser); io.emit('new_patient_notification', { patient: newPatient }); },
-        'update_patient_level': ({ id, newLevel }) => { if (currentUser.role !== 'registro') return; const p = patients.find(p => p.id === id); if (p) { const oldLevel = p.nivelTriage; p.nivelTriage = newLevel; p.ordenTriage = triageOrder[newLevel]; sortPatients(); logAction(id, 'Re-Triage', `Nivel cambiado de ${oldLevel} a ${newLevel}.`, currentUser); } },
-        'send_to_nursing': ({ patientId }) => { if (currentUser.role !== 'registro') return; const patient = patients.find(p => p.id === patientId); if (patient) { patient.status = 'pre_internacion'; logAction(patientId, 'Derivación', 'Enviado directamente a enfermería de guardia.', currentUser); } },
-        'call_patient': ({ id, consultorio }) => { if (currentUser.role !== 'medico') return; const p = patients.find(p => p.id === id); if (p) { p.status = 'atendiendo'; p.consultorio = consultorio; p.doctor_user = currentUser.user; logAction(id, 'Llamado', `Llamado a consultorio ${consultorio}.`, currentUser); currentlyCalled = { nombre: p.nombre, consultorio }; io.emit('update_call', currentlyCalled); setTimeout(() => { currentlyCalled = null; io.emit('update_call', null); }, 20000); } },
-        'add_nurse_evolution': ({ id, note }) => { if (currentUser.role !== 'registro' && currentUser.role !== 'enfermero_guardia') return; logAction(id, 'Nota de Enfermería', note, currentUser); },
-        'add_doctor_note': ({ id, note }) => { if (currentUser.role !== 'medico') return; logAction(id, 'Nota Médica', note, currentUser); },
-        'add_indication': ({ id, text }) => { if (currentUser.role !== 'medico') return; const patient = patients.find(p => p.id === id); if (patient) { if (!patient.indications) patient.indications = []; const newIndication = { id: crypto.randomUUID(), text, doctor: currentUser.fullName, status: 'pendiente', timestamp: Date.now() }; patient.indications.push(newIndication); logAction(id, 'Indicación Médica', text, currentUser); } },
-        'update_indication_status': ({ patientId, indicationId }) => { if (currentUser.role !== 'enfermero_guardia') return; const patient = patients.find(p => p.id === patientId); const indication = patient?.indications.find(i => i.id === indicationId); if (indication) { indication.status = 'realizada'; indication.completedBy = currentUser.fullName; indication.completedAt = Date.now(); logAction(patientId, 'Indicación Cumplida', indication.text, currentUser); } },
-        'mark_as_attended': ({ patientId }) => { const patientIndex = patients.findIndex(p => p.id === patientId); if (patientIndex > -1) { const [patient] = patients.splice(patientIndex, 1); patient.attendedAt = Date.now(); patient.disposition = 'Alta'; attendedHistory.push(patient); logAction(patientId, 'Alta Médica', `Paciente dado de alta.`, currentUser); } },
+    // --- DEFINICIÓN DE LISTENERS DE EVENTOS ---
+    const setupAdminEventListeners = () => {
+        const hasAdminPermission = () => isAuthenticated && currentUser && currentUser.role === 'admin';
+        socket.on('add_user', (newUser) => { if (hasAdminPermission() && newUser.user && newUser.pass) { if (!users.some(u => u.user === newUser.user)) { newUser.token = crypto.randomBytes(16).toString('hex'); users.push(newUser); saveUsers(); io.emit('users_update', users); } } });
+        socket.on('delete_user', (username) => { if (hasAdminPermission() && username) { users = users.filter(u => u.user !== username); saveUsers(); io.emit('users_update', users); } });
+        socket.on('edit_user', ({ username, newFullName, newPassword, newRole }) => { if (hasAdminPermission() && username) { const userIndex = users.findIndex(u => u.user === username); if (userIndex > -1) { users[userIndex].fullName = newFullName; users[userIndex].pass = newPassword; users[userIndex].role = newRole; saveUsers(); io.emit('users_update', users); } } });
+        socket.on('add_preset', (newPreset) => { if (hasAdminPermission() && newPreset.text && newPreset.level) { if (!observationPresets.some(p => p.text === newPreset.text)) { observationPresets.push(newPreset); savePresets(); io.emit('presets_update', observationPresets); } } });
+        socket.on('delete_preset', (presetText) => { if (hasAdminPermission() && presetText) { observationPresets = observationPresets.filter(p => p.text !== presetText); savePresets(); io.emit('presets_update', observationPresets); } });
+        socket.on('edit_preset', ({ oldText, newText, newLevel }) => { if (hasAdminPermission()) { const presetIndex = observationPresets.findIndex(p => p.text === oldText); if (presetIndex > -1) { observationPresets[presetIndex] = { text: newText, level: newLevel }; savePresets(); io.emit('presets_update', observationPresets); } } });
     };
 
-    for (const eventName in patientEvents) {
-        socket.on(eventName, (data) => {
-            if (!isAuthenticated) return; // Protección genérica para todos los eventos
-            patientEvents[eventName](data);
-            saveData();
-            io.emit('update_patient_list', patients);
-            io.emit('attended_history_update', attendedHistory);
-        });
-    }
+    const setupStandardEventListeners = () => {
+        socket.on('start_shift', () => { if (!isAuthenticated) return; activeShifts[currentUser.user] = { user: currentUser, startTime: Date.now(), managedPatientIds: new Set() }; console.log(`Guardia INICIADA por ${currentUser.user}`); });
+        socket.on('end_shift', (callback) => { if (!isAuthenticated || !activeShifts[currentUser.user]) return; const shift = activeShifts[currentUser.user]; const attendedInShift = [...attendedHistory, ...patients].filter(p => shift.managedPatientIds.has(p.id)); delete activeShifts[currentUser.user]; console.log(`Guardia FINALIZADA por ${currentUser.user}`); callback({ user: currentUser, startTime: shift.startTime, endTime: Date.now(), attendedPatients: attendedInShift }); });
+
+        const patientEvents = {
+            'register_patient': (newPatient) => { if (currentUser.role !== 'registro') return; newPatient.log = []; patients.push(newPatient); sortPatients(); logAction(newPatient.id, 'Registro', `Paciente registrado con nivel ${newPatient.nivelTriage}.`, currentUser); io.emit('new_patient_notification', { patient: newPatient }); },
+            'update_patient_level': ({ id, newLevel }) => { if (currentUser.role !== 'registro') return; const p = patients.find(p => p.id === id); if (p) { const oldLevel = p.nivelTriage; p.nivelTriage = newLevel; p.ordenTriage = triageOrder[newLevel]; sortPatients(); logAction(id, 'Re-Triage', `Nivel cambiado de ${oldLevel} a ${newLevel}.`, currentUser); } },
+            'send_to_nursing': ({ patientId }) => { if (currentUser.role !== 'registro') return; const patient = patients.find(p => p.id === patientId); if (patient) { patient.status = 'pre_internacion'; logAction(patientId, 'Derivación', 'Enviado directamente a enfermería de guardia.', currentUser); } },
+            'call_patient': ({ id, consultorio }) => { if (currentUser.role !== 'medico') return; const p = patients.find(p => p.id === id); if (p) { p.status = 'atendiendo'; p.consultorio = consultorio; p.doctor_user = currentUser.user; logAction(id, 'Llamado', `Llamado a consultorio ${consultorio}.`, currentUser); currentlyCalled = { nombre: p.nombre, consultorio }; io.emit('update_call', currentlyCalled); setTimeout(() => { currentlyCalled = null; io.emit('update_call', null); }, 20000); } },
+            'add_nurse_evolution': ({ id, note }) => { if (currentUser.role !== 'registro' && currentUser.role !== 'enfermero_guardia') return; logAction(id, 'Nota de Enfermería', note, currentUser); },
+            'add_doctor_note': ({ id, note }) => { if (currentUser.role !== 'medico') return; logAction(id, 'Nota Médica', note, currentUser); },
+            'add_indication': ({ id, text }) => { if (currentUser.role !== 'medico') return; const patient = patients.find(p => p.id === id); if (patient) { if (!patient.indications) patient.indications = []; const newIndication = { id: crypto.randomUUID(), text, doctor: currentUser.fullName, status: 'pendiente', timestamp: Date.now() }; patient.indications.push(newIndication); logAction(id, 'Indicación Médica', text, currentUser); } },
+            'update_indication_status': ({ patientId, indicationId }) => { if (currentUser.role !== 'enfermero_guardia') return; const patient = patients.find(p => p.id === patientId); const indication = patient?.indications.find(i => i.id === indicationId); if (indication) { indication.status = 'realizada'; indication.completedBy = currentUser.fullName; indication.completedAt = Date.now(); logAction(patientId, 'Indicación Cumplida', indication.text, currentUser); } },
+            'mark_as_attended': ({ patientId }) => { const patientIndex = patients.findIndex(p => p.id === patientId); if (patientIndex > -1) { const [patient] = patients.splice(patientIndex, 1); patient.attendedAt = Date.now(); patient.disposition = 'Alta'; attendedHistory.push(patient); logAction(patientId, 'Alta Médica', `Paciente dado de alta.`, currentUser); } },
+        };
+
+        for (const eventName in patientEvents) {
+            socket.on(eventName, (data) => {
+                if (!isAuthenticated) return;
+                patientEvents[eventName](data);
+                saveData();
+                io.emit('update_patient_list', patients);
+                io.emit('attended_history_update', attendedHistory);
+            });
+        }
+    };
 
     socket.on('disconnect', () => { if (currentUser) console.log(`Usuario desconectado: ${currentUser.user}`); });
 });
