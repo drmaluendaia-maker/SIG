@@ -13,6 +13,7 @@
         .dot-rojo { background-color: #ef4444; } .dot-naranja { background-color: #f97316; } .dot-amarillo { background-color: #f59e0b; }
         .dot-verde { background-color: #10b981; } .dot-azul { background-color: #3b82f6; }
         .status-pre_internacion { background-color: #a855f7; color: white; }
+        .status-en_enfermeria { background-color: #0d9488; color: white; }
     </style>
 </head>
 <body class="bg-slate-100 min-h-screen">
@@ -107,17 +108,20 @@
                 const pendingIndications = patient.indications?.filter(i => i.status === 'pendiente') || [];
                 const completedIndications = patient.indications?.filter(i => i.status === 'realizada') || [];
 
-                let indicationsHTML = '<div class="mt-4"><h4 class="text-sm font-bold mb-2 text-purple-800">Indicaciones Médicas Pendientes:</h4>';
-                if (pendingIndications.length > 0) {
-                    indicationsHTML += `<div class="space-y-2">${pendingIndications.map(ind => `<div class="bg-purple-50 p-3 rounded flex justify-between items-center"><div><p class="text-sm">${ind.text}</p><p class="text-xs text-purple-800 font-semibold">- Dr/a. ${ind.doctor}</p></div><button data-patient-id="${patient.id}" data-indication-id="${ind.id}" class="complete-indication-btn bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-3 rounded text-xs">Realizada</button></div>`).join('')}</div>`;
-                } else {
-                    indicationsHTML += '<p class="text-sm text-gray-500">No hay indicaciones pendientes.</p>';
-                }
+                let indicationsHTML = '';
+                if (patient.indications && patient.indications.length > 0) {
+                    indicationsHTML += '<div class="mt-4"><h4 class="text-sm font-bold mb-2 text-purple-800">Indicaciones Médicas Pendientes:</h4>';
+                    if (pendingIndications.length > 0) {
+                        indicationsHTML += `<div class="space-y-2">${pendingIndications.map(ind => `<div class="bg-purple-50 p-3 rounded flex justify-between items-center"><div><p class="text-sm">${ind.text}</p><p class="text-xs text-purple-800 font-semibold">- Dr/a. ${ind.doctor}</p></div><button data-patient-id="${patient.id}" data-indication-id="${ind.id}" class="complete-indication-btn bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-3 rounded text-xs">Realizada</button></div>`).join('')}</div>`;
+                    } else {
+                        indicationsHTML += '<p class="text-sm text-gray-500">No hay indicaciones pendientes.</p>';
+                    }
 
-                if (completedIndications.length > 0) {
-                    indicationsHTML += `<h4 class="text-sm font-bold mt-4 mb-1 text-green-700">Indicaciones Realizadas:</h4><div class="space-y-2">${completedIndications.map(ind => `<div class="bg-green-50 p-2 rounded text-gray-500"><p class="text-sm line-through">${ind.text}</p><p class="text-xs text-right text-green-800 font-semibold">- Dr/a. ${ind.doctor}</p></div>`).join('')}</div>`;
+                    if (completedIndications.length > 0) {
+                        indicationsHTML += `<h4 class="text-sm font-bold mt-4 mb-1 text-green-700">Indicaciones Realizadas:</h4><div class="space-y-2">${completedIndications.map(ind => `<div class="bg-green-50 p-2 rounded text-gray-500"><p class="text-sm line-through">${ind.text}</p><p class="text-xs text-right text-green-800 font-semibold">- Dr/a. ${ind.doctor}</p></div>`).join('')}</div>`;
+                    }
+                    indicationsHTML += '</div>';
                 }
-                indicationsHTML += '</div>';
                 
                 let vitalsHTML = '';
                 if(patient.vitals && Object.values(patient.vitals).some(v => v)) {
@@ -128,11 +132,15 @@
                 let finalizeButton = '';
                 if (patient.status === 'pre_internacion' && pendingIndications.length === 0) {
                     finalizeButton = `<div class="mt-4 border-t pt-3 flex justify-end"><button data-id="${patient.id}" class="finalize-task-btn bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Finalizar Observación y Devolver a Espera</button></div>`;
+                } else if (patient.status === 'en_enfermeria') {
+                     finalizeButton = `<div class="mt-4 border-t pt-3 flex justify-end"><button data-id="${patient.id}" class="finalize-task-btn bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded">Finalizar Tarea y dar de Alta</button></div>`;
                 }
 
                 let statusTag = '';
                 if (patient.status === 'pre_internacion') {
                     statusTag = '<span class="status-pre_internacion text-xs font-bold uppercase px-2 py-1 rounded-full">En Observación</span>';
+                } else if (patient.status === 'en_enfermeria') {
+                    statusTag = '<span class="status-en_enfermeria text-xs font-bold uppercase px-2 py-1 rounded-full">Derivado de Triage</span>';
                 } else if (patient.disposition === 'Alta') {
                     statusTag = '<span class="bg-green-100 text-green-800 text-xs font-bold uppercase px-2 py-1 rounded-full">Alta Médica</span>';
                 }
@@ -152,7 +160,7 @@
                     </div>
                     ${vitalsHTML}
                     ${indicationsHTML}
-                    <div class="mt-4 border-t pt-3"><form class="add-note-form flex gap-2" data-id="${patient.id}"><textarea class="w-full text-sm border rounded p-2" rows="2" placeholder="Añadir práctica o evolución..."></textarea><button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 text-sm font-bold">Guardar</button></form></div>
+                    <div class="mt-4 border-t pt-3"><form class="add-note-form flex gap-2" data-id="${patient.id}"><textarea class="w-full text-sm border rounded p-2" rows="2" placeholder="Añadir práctica o evolución..."></textarea><button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 text-sm font-bold">Guardar Nota</button></form></div>
                     ${finalizeButton}
                 `;
                 return patientCard;
@@ -161,16 +169,16 @@
             // --- Rendering & Event Handlers ---
             function renderAllLists(patients) {
                 allPatients = patients;
-                // Un paciente aparece si está en observación O si tiene indicaciones pendientes (sin importar su estado principal)
                 const patientsForNursing = allPatients.filter(p => 
-                    p.status === 'pre_internacion' || (p.indications && p.indications.some(i => i.status === 'pendiente'))
+                    p.status === 'pre_internacion' ||
+                    p.status === 'en_enfermeria' ||
+                    (p.indications && p.indications.some(i => i.status === 'pendiente'))
                 );
                 
                 patientTaskListContainer.innerHTML = '';
                 noPatientsMessage.classList.toggle('hidden', patientsForNursing.length > 0);
-                if (patientsForNursing.length > 0) { 
-                    patientsForNursing.forEach(p => patientTaskListContainer.appendChild(createPatientCard(p))); 
-                }
+                patientsForNursing.forEach(p => patientTaskListContainer.appendChild(createPatientCard(p))); 
+                
                 renderShiftHistory();
             }
 
@@ -206,8 +214,8 @@
             }
             
             socket.on('update_patient_list', renderAllLists);
-            socket.on('attended_history_update', (history) => { // Needed to update status of attended patients
-                const activePatients = allPatients.filter(p => p.status !== 'atendido' && p.disposition !== 'Alta');
+            socket.on('attended_history_update', (history) => { 
+                const activePatients = allPatients.filter(p => p.status !== 'atendido');
                 renderAllLists([...activePatients, ...history]);
             });
             
@@ -216,7 +224,7 @@
                     socket.emit('update_indication_status', { patientId: parseInt(e.target.dataset.patientId), indicationId: e.target.dataset.indicationId }); 
                 }
                 if (e.target.classList.contains('finalize-task-btn')) {
-                    if (confirm("¿Seguro que desea finalizar la observación de este paciente y devolverlo a la sala de espera?")) {
+                    if (confirm("¿Seguro que desea finalizar las tareas para este paciente?")) {
                         socket.emit('finalize_nursing_task', { patientId: parseInt(e.target.dataset.id) });
                     }
                 }
