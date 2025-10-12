@@ -1,7 +1,7 @@
 // =================================================================================
 // SERVIDOR DEL SISTEMA INTEGRADO DE GUARDIA (SIG)
 // Autor: Dr. Xavier Maluenda y Gemini (Refactorizado por Programador Senior)
-// Versión: 4.5 (Funcionalidad de Administración Completa)
+// Versión: 4.6 (Soporte para Reevaluación Completa)
 // =================================================================================
 
 // 1. IMPORTACIONES Y CONFIGURACIÓN BÁSICA
@@ -245,8 +245,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- LÓGICA DE PACIENTES (Refactorizada con DB) ---
-    // (Esta sección no cambia respecto a la versión anterior)
+    // --- LÓGICA DE PACIENTES ---
     socket.on('register_patient', async (newPatient) => {
         if (!currentUser || currentUser.role !== 'registro') return;
         try {
@@ -265,6 +264,41 @@ io.on('connection', (socket) => {
             console.error("Error en register_patient:", error);
         }
     });
+
+    socket.on('reevaluate_patient', async (payload) => {
+        if (!currentUser || currentUser.role !== 'registro') return;
+        try {
+            const { id, newNotes, newVitals, newLevel } = payload;
+            
+            const patient = await dbGet('SELECT vitals, notas FROM patients WHERE id = ?', [id]);
+            if (!patient) return;
+
+            const currentVitals = JSON.parse(patient.vitals || '{}');
+            const updatedVitals = {
+                ta: newVitals.ta || currentVitals.ta,
+                fc: newVitals.fc || currentVitals.fc,
+                temp: newVitals.temp || currentVitals.temp,
+                hgt: newVitals.hgt || currentVitals.hgt,
+                edad: currentVitals.edad
+            };
+            
+            const triageOrderMap = { 'rojo': 1, 'naranja': 2, 'amarillo': 3, 'verde': 4, 'azul': 5 };
+            const newOrder = triageOrderMap[newLevel];
+            const finalNotes = (patient.notas && newNotes) ? `${patient.notas}; ${newNotes}` : (newNotes || patient.notas);
+
+            await dbRun(
+                `UPDATE patients SET vitals = ?, notas = ?, nivelTriage = ?, ordenTriage = ? WHERE id = ?`,
+                [JSON.stringify(updatedVitals), finalNotes, newLevel, newOrder, id]
+            );
+
+            await logAction(id, 'Reevaluación', `Nuevas notas: ${newNotes}. Nivel de Triage actualizado a ${newLevel}.`, currentUser);
+            await broadcastFullState();
+
+        } catch (error) {
+            console.error("Error en reevaluate_patient:", error);
+        }
+    });
+
     socket.on('call_patient', async ({ id, consultorio }) => {
         if (!currentUser || currentUser.role !== 'medico') return;
         try {
@@ -275,13 +309,14 @@ io.on('connection', (socket) => {
             setTimeout(() => {
                 currentlyCalled = null;
                 io.emit('update_call', null);
-            }, 10000); // Llamado dura 10 segundos
+            }, 10000);
             await logAction(id, 'Llamado a Consultorio', `Llamado al consultorio ${consultorio}`, currentUser);
             await broadcastFullState();
         } catch (error) {
             console.error("Error en call_patient:", error);
         }
     });
+
     socket.on('update_patient_status', async ({ id, status }) => {
         if (!currentUser || currentUser.role !== 'medico') return;
         try {
@@ -292,6 +327,7 @@ io.on('connection', (socket) => {
             console.error("Error en update_patient_status:", error);
         }
     });
+
     socket.on('mark_as_attended', async ({ patientId }) => {
         if (!currentUser || currentUser.role !== 'medico') return;
         try {
@@ -302,16 +338,19 @@ io.on('connection', (socket) => {
             console.error("Error en mark_as_attended:", error);
         }
     });
+
     socket.on('add_doctor_note', async ({ id, note }) => {
         if (!currentUser || currentUser.role !== 'medico') return;
         await logAction(id, 'Nota Médica', note, currentUser);
         await broadcastFullState();
     });
+
     socket.on('add_nurse_evolution', async ({ id, note }) => {
          if (!currentUser || currentUser.role !== 'enfermero_guardia') return;
         await logAction(id, 'Nota de Enfermería', note, currentUser);
         await broadcastFullState();
     });
+
     socket.on('add_indication', async ({ id, text }) => {
         if (!currentUser || currentUser.role !== 'medico') return;
         try {
@@ -326,6 +365,7 @@ io.on('connection', (socket) => {
             console.error("Error en add_indication:", error);
         }
     });
+
     socket.on('update_indication_status', async ({ patientId, indicationId }) => {
         if (!currentUser || currentUser.role !== 'enfermero_guardia') return;
         try {
@@ -347,7 +387,7 @@ io.on('connection', (socket) => {
         }
     });
     
-    // --- LÓGICA DE ADMINISTRACIÓN (NUEVO) ---
+    // --- LÓGICA DE ADMINISTRACIÓN ---
     socket.on('admin_login', ({ pass }) => {
         if (pass === ADMIN_MASTER_PASS) {
             isAdminAuthenticated = true;
@@ -359,7 +399,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // -- Gestión de Usuarios --
     socket.on('add_user', async (newUser) => {
         if (!isAdminAuthenticated) return;
         try {
@@ -371,6 +410,7 @@ io.on('connection', (socket) => {
             console.error("Error en add_user:", error);
         }
     });
+
     socket.on('edit_user', async (updatedUser) => {
         if (!isAdminAuthenticated) return;
         try {
@@ -381,6 +421,7 @@ io.on('connection', (socket) => {
             console.error("Error en edit_user:", error);
         }
     });
+
     socket.on('delete_user', async (username) => {
         if (!isAdminAuthenticated) return;
         try {
@@ -391,7 +432,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // -- Gestión de Presets --
     socket.on('add_preset', async (newPreset) => {
         if (!isAdminAuthenticated) return;
         try {
@@ -401,6 +441,7 @@ io.on('connection', (socket) => {
             console.error("Error en add_preset:", error);
         }
     });
+
     socket.on('edit_preset', async (payload) => {
         if (!isAdminAuthenticated) return;
         try {
@@ -410,6 +451,7 @@ io.on('connection', (socket) => {
             console.error("Error en edit_preset:", error);
         }
     });
+
     socket.on('delete_preset', async (presetText) => {
         if (!isAdminAuthenticated) return;
         try {
@@ -420,9 +462,9 @@ io.on('connection', (socket) => {
         }
     });
 
-
     // --- GESTIÓN DE GUARDIA ---
     socket.on('start_shift', () => { if (!currentUser) return; activeShifts[currentUser.user] = { user: currentUser, startTime: Date.now(), managedPatientIds: new Set() }; });
+    
     socket.on('end_shift', async (callback) => {
         if (!currentUser || !activeShifts[currentUser.user]) return;
         const shift = activeShifts[currentUser.user];
@@ -444,14 +486,12 @@ io.on('connection', (socket) => {
         callback({ user: currentUser, startTime: shift.startTime, endTime: Date.now(), attendedPatients: attendedInShift });
     });
 
-
     socket.on('disconnect', () => { if (currentUser) console.log(`Usuario desconectado: ${currentUser.user}`); });
 });
 
-
 // 7. INICIO DEL SERVIDOR
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`✔️  Servidor SIG v4.5 escuchando en el puerto ${PORT}`);
+    console.log(`✔️  Servidor SIG v4.6 escuchando en el puerto ${PORT}`);
     if (!process.env.RENDER) {
         open(`http://localhost:${PORT}`);
     }
