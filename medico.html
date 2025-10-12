@@ -23,9 +23,7 @@
 <body class="bg-slate-100 min-h-screen">
     <div id="loginOverlay" class="fixed inset-0 bg-gray-900 bg-opacity-95 z-50 flex items-center justify-center p-4"><div class="bg-white p-8 rounded-lg shadow-2xl text-center w-full max-w-sm"><h2 class="text-2xl font-bold mb-4">Acceso Médico</h2><form id="loginForm"><input type="text" id="userInput" class="w-full px-4 py-3 border rounded-lg mb-4 text-center" placeholder="Usuario Médico"><input type="password" id="passwordInput" class="w-full px-4 py-3 border rounded-lg mb-4 text-center" placeholder="••••••••"><div class="flex items-center justify-center mb-4"><input id="rememberMe" type="checkbox" class="h-4 w-4 text-indigo-600 rounded"><label for="rememberMe" class="ml-2 block text-sm text-gray-900">Recordar</label></div><button type="submit" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg">Ingresar</button><p id="loginError" class="text-red-500 text-sm mt-2 h-4"></p></form></div></div>
     <div id="historyModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 z-40 flex items-center justify-center p-4"><div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-4xl"><div class="flex justify-between items-center mb-4"><h2 class="text-2xl font-bold">Ficha del Paciente</h2><button id="closeHistoryBtn" class="text-2xl font-bold text-gray-500 hover:text-gray-800">&times;</button></div><div id="historyResults" class="max-h-[80vh] overflow-y-auto space-y-4 pr-2"></div></div></div>
-    <div id="hospitalizationModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 z-40 flex items-center justify-center p-4"><div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-lg"><h2 class="text-2xl font-bold mb-4">Registrar Internación</h2><form id="hospitalizationForm" class="space-y-4"><div><label for="admissionState" class="block text-sm font-medium text-gray-700">Estado del paciente al ingreso</label><textarea id="admissionState" required class="w-full mt-1 px-3 py-2 border rounded-lg" rows="3"></textarea></div><div><label for="complementaryStudies" class="block text-sm font-medium text-gray-700">Estudios complementarios</label><textarea id="complementaryStudies" class="w-full mt-1 px-3 py-2 border rounded-lg" rows="3"></textarea></div><div class="flex justify-end gap-4"><button type="button" id="closeHospitalizationBtn" class="bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg">Cancelar</button><button type="submit" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">Confirmar Internación</button></div></form></div></div>
-    <div id="transferModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 z-40 flex items-center justify-center p-4"><div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-lg"><h2 class="text-2xl font-bold mb-4">Registrar Traslado</h2><form id="transferForm" class="space-y-4"><div><label for="transferState" class="block text-sm font-medium text-gray-700">Estado del paciente al traslado</label><textarea id="transferState" required class="w-full mt-1 px-3 py-2 border rounded-lg" rows="2"></textarea></div><div><label for="transferVitals" class="block text-sm font-medium text-gray-700">Signos Vitales al traslado</label><input type="text" id="transferVitals" required class="w-full mt-1 px-3 py-2 border rounded-lg" placeholder="TA, FC, T°, etc."></div><div><label for="receivingInstitution" class="block text-sm font-medium text-gray-700">Institución Receptora</label><input type="text" id="receivingInstitution" required class="w-full mt-1 px-3 py-2 border rounded-lg"></div><div><label for="receivingDoctor" class="block text-sm font-medium text-gray-700">Médico Receptor</label><input type="text" id="receivingDoctor" required class="w-full mt-1 px-3 py-2 border rounded-lg"></div><div class="flex justify-end gap-4"><button type="button" id="closeTransferBtn" class="bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg">Cancelar</button><button type="submit" class="bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Confirmar Traslado</button></div></form></div></div>
-
+    
     <div id="appContent" class="hidden opacity-0 transition-opacity duration-500">
         <div id="emergencyBanner" class="hidden emergency-banner bg-red-600 text-white text-center p-2 font-bold shadow-lg">EMERGENCIA EN CURSO</div>
         <header class="bg-white shadow-md">
@@ -58,12 +56,10 @@
             const socket = io();
             // --- DOM Elements ---
             const loginOverlay = document.getElementById('loginOverlay'), loginForm = document.getElementById('loginForm'), userInput = document.getElementById('userInput'), passwordInput = document.getElementById('passwordInput'), rememberMeCheck = document.getElementById('rememberMe'), loginError = document.getElementById('loginError'), appContent = document.getElementById('appContent'), patientListContainer = document.getElementById('patientList'), preAdmissionListContainer = document.getElementById('preAdmissionList'), attendingPatientCardContainer = document.getElementById('attendingPatientCard'), noPatientsMessage = document.getElementById('noPatientsMessage'), noPreAdmissionMessage = document.getElementById('noPreAdmissionMessage'), emergencyBanner = document.getElementById('emergencyBanner'), historyModal = document.getElementById('historyModal'), historyResults = document.getElementById('historyResults'), closeHistoryBtn = document.getElementById('closeHistoryBtn'), logoutBtn = document.getElementById('logoutBtn'), currentUserSpan = document.getElementById('currentUser');
-            const hospitalizationModal = document.getElementById('hospitalizationModal'), hospitalizationForm = document.getElementById('hospitalizationForm'), closeHospitalizationBtn = document.getElementById('closeHospitalizationBtn');
-            const transferModal = document.getElementById('transferModal'), transferForm = document.getElementById('transferForm'), closeTransferBtn = document.getElementById('closeTransferBtn');
             const startShiftBtn = document.getElementById('startShiftBtn'), endShiftBtn = document.getElementById('endShiftBtn'), shiftActiveDisplay = document.getElementById('shiftActiveDisplay');
 
             // --- App State ---
-            let currentPatientIdForAction = null, synth, currentUser = null, isShiftActive = false;
+            let synth, currentUser = null, isShiftActive = false, fullPatientList = [];
 
             // --- Authentication ---
             const token = localStorage.getItem('triageAuthToken');
@@ -85,7 +81,7 @@
                 let actionButtons = '', dispositionButtons = '';
                 if (!isHistoryView) {
                     if (['en_espera', 'ausente', 'pre_internacion'].includes(patient.status)) {
-                        actionButtons = `<button data-id="${patient.id}" data-consultorio="1" class="call-btn bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-3 rounded text-sm"><i class="fas fa-volume-up mr-2"></i>Llamar C1</button>`;
+                        actionButtons = `<button data-id="${patient.id}" data-consultorio="1" class="call-btn bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-3 rounded text-sm"><i class="fas fa-volume-up mr-2"></i>Llamar</button>`;
                     }
                     if (['atendiendo', 'pre_internacion'].includes(patient.status)) {
                         dispositionButtons = `<button data-id="${patient.id}" class="pre-admission-btn bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 px-3 rounded text-sm">A Observación</button><button data-id="${patient.id}" class="attended-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-3 rounded text-sm">Dar de Alta</button>`;
@@ -97,9 +93,9 @@
                 
                 const createCollapsible = (title, content, color) => `<div class="mt-2 border-t pt-2"><button class="collapsible-toggle w-full text-left font-bold text-sm text-${color}-800 flex justify-between items-center p-1"><span>${title}</span><i class="fas fa-chevron-down collapsible-toggle-icon"></i></button><div class="collapsible-content pl-2 pt-2 border-l-2 border-${color}-200">${content}</div></div>`;
                 
-                let historyContent = (patient.log || []).map(logEntry => {
-                    const time = new Date(logEntry.timestamp).toLocaleTimeString('es-ES');
-                    return `<div class="text-xs p-1 border-b"><span class="font-bold">${time} - ${logEntry.type}:</span> ${logEntry.details} <span class="text-gray-500">(${logEntry.user})</span></div>`;
+                let logContent = (patient.log || []).map(entry => {
+                    const time = new Date(entry.timestamp).toLocaleString('es-ES');
+                    return `<div class="text-xs p-2 my-1 border-b"><p class="font-semibold text-gray-700">${entry.type}</p><p class="text-gray-800">${entry.details}</p><p class="text-right text-gray-500 text-xs italic">${entry.user} - ${time}</p></div>`;
                 }).join('');
 
                 patientCard.innerHTML = `
@@ -112,7 +108,7 @@
                         <div>${isHistoryView ? '' : `<button data-id="${patient.id}" class="history-btn text-xs bg-gray-200 text-gray-800 px-2 py-1 rounded">Ver Ficha</button>`}</div>
                     </div>
                     <div class="flex items-center gap-2 mt-4 pl-7 flex-wrap">${actionButtons}</div>
-                    ${isHistoryView ? createCollapsible('Cronología Completa', historyContent || 'Sin eventos registrados.', 'gray') : ''}
+                    ${isHistoryView ? createCollapsible('Cronología Completa', logContent || 'Sin eventos.', 'gray') : ''}
                     ${createCollapsible('Indicaciones', (patient.indications?.map(ind => `<div class="text-xs p-2 rounded mt-1 ${ind.status === 'realizada' ? 'bg-green-100' : 'bg-purple-50'}"><p class="${ind.status === 'realizada' ? 'line-through text-gray-500' : ''}">${ind.text}</p><p class="text-right font-semibold ${ind.status === 'realizada' ? 'text-green-800' : 'text-purple-800'}">- ${ind.doctor}</p></div>`).join('') || '<p class="text-xs text-gray-500">Sin indicaciones.</p>') + (isHistoryView ? '' : `<form class="add-indication-form mt-2 flex gap-2" data-id="${patient.id}"><textarea class="w-full text-sm border rounded p-1" rows="2"></textarea><button type="submit" class="bg-purple-600 text-white rounded px-3 text-sm font-bold">Indicar</button></form>`), 'purple')}
                     ${isHistoryView ? '' : `<form class="add-note-form mt-2 flex gap-2" data-id="${patient.id}"><textarea class="w-full text-sm border rounded p-1" rows="2" placeholder="Añadir nota médica..."></textarea><button type="submit" class="bg-blue-500 text-white rounded px-3 text-sm font-bold">Guardar Nota</button></form>`}
                     <div class="flex items-center gap-2 mt-4 pt-4 border-t pl-7 flex-wrap">${dispositionButtons}</div>`;
@@ -122,6 +118,7 @@
             // --- List Rendering ---
             function renderAllLists(patients) {
                 if (!currentUser) return;
+                fullPatientList = patients; // Guardar la lista completa
                 const attendingPatient = patients.find(p => p.status === 'atendiendo' && p.doctor_user === currentUser.user);
                 const preAdmissionPatients = patients.filter(p => p.status === 'pre_internacion');
                 const waitingPatients = patients.filter(p => p.status === 'en_espera' || p.status === 'ausente');
@@ -136,10 +133,12 @@
             // --- Event Handlers & Modals ---
             appContent.addEventListener('click', (e) => {
                 const target = e.target; const patientId = parseInt(target.closest('[data-id]')?.dataset.id || target.dataset.id);
+                if (!patientId && !target.matches('.collapsible-toggle, .collapsible-toggle *')) return;
+
                 if (target.matches('.call-btn')) socket.emit('call_patient', { id: patientId, consultorio: target.dataset.consultorio });
                 if (target.matches('.attended-btn')) socket.emit('mark_as_attended', { patientId: patientId });
                 if (target.matches('.pre-admission-btn')) socket.emit('update_patient_status', { id: patientId, status: 'pre_internacion' });
-                if (target.matches('.history-btn')) { const patient = [...patients, ...window.attendedHistoryData || []].find(p => p.id === patientId); if(patient) { historyResults.innerHTML = ''; historyResults.appendChild(createPatientCard(patient, true)); historyModal.classList.remove('hidden'); } }
+                if (target.matches('.history-btn')) { const patient = fullPatientList.find(p => p.id === patientId); if(patient) { historyResults.innerHTML = ''; historyResults.appendChild(createPatientCard(patient, true)); historyModal.classList.remove('hidden'); } }
                 if (target.matches('.collapsible-toggle, .collapsible-toggle *')) { const button = target.closest('.collapsible-toggle'); const content = button.nextElementSibling; button.querySelector('.collapsible-toggle-icon').classList.toggle('rotate-180'); content.style.maxHeight = content.style.maxHeight ? null : content.scrollHeight + "px"; }
             });
             appContent.addEventListener('submit', (e) => { e.preventDefault(); const form = e.target; const patientId = parseInt(form.dataset.id); const textarea = form.querySelector('textarea'); const text = textarea.value.trim(); if (!text) return; if (form.matches('.add-note-form')) socket.emit('add_doctor_note', { id: patientId, note: text }); if (form.matches('.add-indication-form')) socket.emit('add_indication', { id: patientId, text: text }); textarea.value = ''; });
@@ -167,7 +166,7 @@
             }
             
             // --- Socket Listeners ---
-            socket.on('update_patient_list', renderAllLists);
+            socket.on('update_patient_list', (patients) => { renderAllLists([...patients, ...window.attendedHistoryData || []]); });
             socket.on('attended_history_update', (history) => { window.attendedHistoryData = history; });
         });
     </script>
