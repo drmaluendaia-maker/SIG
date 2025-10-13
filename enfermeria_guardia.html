@@ -125,7 +125,11 @@
                 
                 let vitalsHTML = '';
                 if(patient.vitals && Object.values(patient.vitals).some(v => v)) {
-                    const vitalsContent = [ `TA: ${getTADisplay(patient.vitals)}`, `FC: ${patient.vitals.fc || 'N/A'}`, `T°: ${patient.vitals.temp || 'N/A'}`, `HGT: ${patient.vitals.hgt || 'N/A'}` ].filter(Boolean).join(' | ');
+                    const vitalsContent = [ 
+                        `TA: ${getTADisplay(patient.vitals)}`, `FC: ${patient.vitals.fc || 'N/A'}`,
+                        `SO2: ${patient.vitals.so2 || 'N/A'}%`, `T°: ${patient.vitals.temp || 'N/A'}`, 
+                        `HGT: ${patient.vitals.hgt || 'N/A'}` 
+                    ].filter(Boolean).join(' | ');
                     vitalsHTML = `<div class="mt-2 text-xs text-gray-600">${vitalsContent}</div>`;
                 }
                 
@@ -160,7 +164,7 @@
                     </div>
                     ${vitalsHTML}
                     ${indicationsHTML}
-                    <div class="mt-4 border-t pt-3"><form class="add-note-form flex gap-2" data-id="${patient.id}"><textarea class="w-full text-sm border rounded p-2" rows="2" placeholder="Añadir práctica o evolución..."></textarea><button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 text-sm font-bold">Guardar Nota</button></form></div>
+                    <div class="mt-4 border-t pt-3"><form class="add-note-form flex gap-2" data-id="${patient.id}"><textarea class="w-full text-sm border rounded p-2" rows="2" placeholder="Añadir práctica o evolución..."></textarea><button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 text-sm font-bold">Guardar</button></form></div>
                     ${finalizeButton}
                 `;
                 return patientCard;
@@ -220,12 +224,15 @@
             });
             
             appContent.addEventListener('click', (e) => { 
-                if (e.target.classList.contains('complete-indication-btn')) { 
-                    socket.emit('update_indication_status', { patientId: parseInt(e.target.dataset.patientId), indicationId: e.target.dataset.indicationId }); 
+                const button = e.target.closest('button');
+                if (!button) return;
+
+                if (button.classList.contains('complete-indication-btn')) { 
+                    socket.emit('update_indication_status', { patientId: parseInt(button.dataset.patientId), indicationId: button.dataset.indicationId }); 
                 }
-                if (e.target.classList.contains('finalize-task-btn')) {
+                if (button.classList.contains('finalize-task-btn')) {
                     if (confirm("¿Seguro que desea finalizar las tareas para este paciente?")) {
-                        socket.emit('finalize_nursing_task', { patientId: parseInt(e.target.dataset.id) });
+                        socket.emit('finalize_nursing_task', { patientId: parseInt(button.dataset.id) });
                     }
                 }
             });
