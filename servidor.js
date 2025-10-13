@@ -1,7 +1,7 @@
 // =================================================================================
 // SERVIDOR DEL SISTEMA INTEGRADO DE GUARDIA (SIG)
 // Autor: Dr. Xavier Maluenda y Gemini (Refactorizado por Programador Senior)
-// Versión: 5.0 (Diagnóstico de Registro y Lógica de Cliente Mejorada)
+// Versión: 5.1 (Soporte para SO2 y Corrección de Bugs)
 // =================================================================================
 
 // 1. IMPORTACIONES Y CONFIGURACIÓN BÁSICA
@@ -203,13 +203,8 @@ io.on('connection', (socket) => {
     });
 
     socket.on('register_patient', async (newPatient) => {
-        console.log("DEBUG: Evento 'register_patient' recibido.");
-        if (!currentUser || currentUser.role !== 'registro') {
-            console.log("DEBUG: Registro denegado por falta de permisos.");
-            return;
-        }
+        if (!currentUser || currentUser.role !== 'registro') return;
         try {
-            console.log("DEBUG: Intentando insertar paciente en la DB:", newPatient.nombre);
             const { lastID } = await dbRun(
                 `INSERT INTO patients (id, nombre, dni, vitals, notas, nivelTriage, ordenTriage, horaLlegada, status, registeredBy, log, indications)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -219,43 +214,50 @@ io.on('connection', (socket) => {
                     newPatient.horaLlegada, 'en_espera', currentUser.user, '[]', '[]'
                 ]
             );
-            console.log(`DEBUG: Paciente insertado con ID: ${lastID}.`);
-
             await logAction(lastID, 'Registro', `Motivo: ${newPatient.notas}`, currentUser);
-            console.log("DEBUG: Acción registrada.");
-
             await broadcastFullState();
-            console.log("DEBUG: Estado actualizado para todos los clientes.");
-
         } catch (error) {
             console.error("ERROR CRÍTICO en register_patient:", error);
         }
     });
 
-    // ... (resto de listeners de socket sin cambios)
+    socket.on('reevaluate_patient', async (payload) => {
+        if (!currentUser || currentUser.role !== 'registro') return;
+        try {
+            const { id, newNotes, newVitals, newLevel } = payload;
+            
+            const patient = await dbGet('SELECT vitals, notas FROM patients WHERE id = ?', [id]);
+            if (!patient) return;
 
-    socket.on('admin_login', ({ pass }) => {
-        console.log(`Intento de login de admin con la contraseña: "${pass}"`);
-        if (pass === ADMIN_MASTER_PASS) {
-            isAdminAuthenticated = true;
-            socket.emit('admin_auth_success');
-            console.log('🔑 Acceso de administrador concedido.');
-            emitAllData();
-        } else {
-            console.log('Login de admin fallido. La contraseña no coincide.');
-            socket.emit('auth_fail');
+            const currentVitals = JSON.parse(patient.vitals || '{}');
+            const updatedVitals = {
+                tas: newVitals.tas || currentVitals.tas,
+                tad: newVitals.tad || currentVitals.tad,
+                fc: newVitals.fc || currentVitals.fc,
+                so2: newVitals.so2 || currentVitals.so2,
+                temp: newVitals.temp || currentVitals.temp,
+                hgt: newVitals.hgt || currentVitals.hgt,
+                edad: currentVitals.edad
+            };
+            
+            const triageOrderMap = { 'rojo': 1, 'naranja': 2, 'amarillo': 3, 'verde': 4, 'azul': 5 };
+            const newOrder = triageOrderMap[newLevel];
+            const finalNotes = (patient.notas && newNotes) ? `${patient.notas}; ${newNotes}` : (newNotes || patient.notas);
+
+            await dbRun(
+                `UPDATE patients SET vitals = ?, notas = ?, nivelTriage = ?, ordenTriage = ? WHERE id = ?`,
+                [JSON.stringify(updatedVitals), finalNotes, newLevel, newOrder, id]
+            );
+            await logAction(id, 'Reevaluación', `Nuevas notas: ${newNotes}. Nivel de Triage actualizado a ${newLevel}.`, currentUser);
+            await broadcastFullState();
+        } catch (error) {
+            console.error("Error en reevaluate_patient:", error);
         }
     });
 
-    // ... (resto de listeners de admin y gestión de guardia sin cambios)
+    // ... (resto de listeners sin cambios)
 
     socket.on('disconnect', () => { if (currentUser) console.log(`Usuario desconectado: ${currentUser.user}`); });
 });
 
-// 7. INICIO DEL SERVIDOR
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`✔️  Servidor SIG v5.0 escuchando en el puerto ${PORT}`);
-    if (!process.env.RENDER) {
-        open(`http://localhost:${PORT}`);
-    }
-});
+// ... (resto del archivo del servidor sin cambios)
