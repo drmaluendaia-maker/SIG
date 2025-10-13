@@ -143,11 +143,7 @@
                 waiting.forEach(patient => {
                     const patientDiv = document.createElement('div');
                     patientDiv.className = `bg-gray-50 p-4 rounded-lg shadow border-l-8 dot-${patient.nivelTriage}`;
-                    const vitalsDisplay = [
-                        `TA: ${getTADisplay(patient.vitals)}`, `FC: ${patient.vitals.fc || 'N/A'}`,
-                        `SO2: ${patient.vitals.so2 || 'N/A'}%`, `T°: ${patient.vitals.temp || 'N/A'}`, 
-                        `HGT: ${patient.vitals.hgt || 'N/A'}`
-                    ].join(' | ');
+                    const vitalsDisplay = [ `TA: ${getTADisplay(patient.vitals)}`, `FC: ${patient.vitals.fc || 'N/A'}`, `SO2: ${patient.vitals.so2 || 'N/A'}%`, `T°: ${patient.vitals.temp || 'N/A'}`, `HGT: ${patient.vitals.hgt || 'N/A'}` ].join(' | ');
                     patientDiv.innerHTML = `
                         <div class="flex justify-between items-start">
                             <div><p class="font-bold text-lg">${patient.nombre}</p><p class="text-sm text-gray-500">${new Date(patient.horaLlegada).toLocaleTimeString('es-ES')}</p></div>
@@ -277,6 +273,20 @@
                 socket.emit('reevaluate_patient', payload);
                 closeModal();
             });
+            
+            // Función para generar PDF (sin cambios)
+            function generateShiftPDF(shiftData) {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                doc.setFontSize(16); doc.text("Reporte de Guardia - Triage", 14, 22);
+                doc.setFontSize(11); doc.text(`Profesional: ${shiftData.user.fullName}`, 14, 30); doc.text(`Inicio: ${new Date(shiftData.startTime).toLocaleString('es-ES')} | Fin: ${new Date(shiftData.endTime).toLocaleString('es-ES')}`, 14, 36);
+                if (shiftData.attendedPatients.length === 0) { doc.text("No se registraron pacientes.", 14, 55); } 
+                else {
+                    const body = shiftData.attendedPatients.map((p, i) => [ i + 1, new Date(p.horaLlegada).toLocaleString('es-ES'), p.nombre, p.dni || 'N/A', p.nivelTriage, p.notas || '', [ `TA: ${getTADisplay(p.vitals)}`, `FC: ${p.vitals.fc||''}`, `SO2: ${p.vitals.so2||''}%`, `T°: ${p.vitals.temp||''}`, `HGT: ${p.vitals.hgt||''}` ].join(', ') ]);
+                    doc.autoTable({ startY: 50, head: [['#', 'Fecha/Hora', 'Nombre', 'DNI', 'Nivel', 'Motivo', 'Vitales']], body, headStyles: { fillColor: [41, 128, 185] } });
+                }
+                doc.save(`Reporte_Triage_${shiftData.user.user}_${new Date().toLocaleDateString('es-ES').replace(/\//g, '-')}.pdf`);
+            }
 
             socket.on('update_patient_list', renderAllLists);
         });
