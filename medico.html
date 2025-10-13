@@ -111,7 +111,7 @@
                 patientCard.className = 'bg-white p-4 rounded-lg shadow-md';
 
                 let actionButtons = '', dispositionButtons = '';
-                if (['en_espera', 'ausente', 'pre_internacion'].includes(patient.status)) {
+                if (['en_espera', 'ausente', 'pre_internacion', 'en_enfermeria'].includes(patient.status)) {
                     actionButtons = `<button data-id="${patient.id}" data-consultorio="1" class="call-btn bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-3 rounded text-sm"><i class="fas fa-volume-up mr-2"></i>Llamar</button>`;
                 }
                 if (['atendiendo', 'pre_internacion'].includes(patient.status)) {
@@ -123,10 +123,11 @@
                     const vitalsContent = [
                         patient.vitals.tas || patient.vitals.tad ? `<div><span class="font-bold">TA:</span> ${getTADisplay(patient.vitals)}</div>` : '',
                         patient.vitals.fc ? `<div><span class="font-bold">FC:</span> ${patient.vitals.fc}</div>` : '',
+                        patient.vitals.so2 ? `<div><span class="font-bold">SO2:</span> ${patient.vitals.so2}%</div>` : '',
                         patient.vitals.temp ? `<div><span class="font-bold">T°:</span> ${patient.vitals.temp}</div>` : '',
                         patient.vitals.hgt ? `<div><span class="font-bold">HGT:</span> ${patient.vitals.hgt}</div>` : ''
                     ].filter(Boolean).join('');
-                    vitalsHTML = `<div class="mt-3 bg-gray-50 p-2 rounded-md grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">${vitalsContent}</div>`;
+                    vitalsHTML = `<div class="mt-3 bg-gray-50 p-2 rounded-md grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">${vitalsContent}</div>`;
                 }
                 
                 const logContent = (patient.log || []).map(entry => {
@@ -179,7 +180,7 @@
 
                 const attendingPatient = activePatients.find(p => p.status === 'atendiendo' && p.doctor_user === currentUser.user);
                 const preAdmissionPatients = activePatients.filter(p => p.status === 'pre_internacion');
-                const waitingPatients = activePatients.filter(p => p.status === 'en_espera' || p.status === 'ausente');
+                const waitingPatients = activePatients.filter(p => ['en_espera', 'ausente', 'en_enfermeria'].includes(p.status));
                 
                 attendingPatientCardContainer.innerHTML = attendingPatient ? '' : '<p class="text-center text-gray-500">Ningún paciente en consultorio.</p>';
                 if (attendingPatient) attendingPatientCardContainer.appendChild(createPatientCard(attendingPatient));
@@ -229,13 +230,14 @@
 
             // --- Event Handlers & Modals ---
             appContent.addEventListener('click', (e) => {
-                const target = e.target; 
-                const patientId = parseInt(target.closest('[data-id]')?.dataset.id || target.dataset.id);
+                const button = e.target.closest('button');
+                if (!button) return;
+                const patientId = parseInt(button.dataset.id);
                 if (!patientId) return;
 
-                if (target.matches('.call-btn')) socket.emit('call_patient', { id: patientId, consultorio: target.dataset.consultorio });
-                if (target.matches('.attended-btn')) socket.emit('mark_as_attended', { patientId: patientId });
-                if (target.matches('.pre-admission-btn')) socket.emit('update_patient_status', { id: patientId, status: 'pre_internacion' });
+                if (button.classList.contains('call-btn')) socket.emit('call_patient', { id: patientId, consultorio: button.dataset.consultorio });
+                if (button.classList.contains('attended-btn')) socket.emit('mark_as_attended', { patientId: patientId });
+                if (button.classList.contains('pre-admission-btn')) socket.emit('update_patient_status', { id: patientId, status: 'pre_internacion' });
             });
             appContent.addEventListener('submit', (e) => { 
                 e.preventDefault(); 
