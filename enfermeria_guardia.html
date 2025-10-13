@@ -116,7 +116,6 @@
                     } else {
                         indicationsHTML += '<p class="text-sm text-gray-500">No hay indicaciones pendientes.</p>';
                     }
-
                     if (completedIndications.length > 0) {
                         indicationsHTML += `<h4 class="text-sm font-bold mt-4 mb-1 text-green-700">Indicaciones Realizadas:</h4><div class="space-y-2">${completedIndications.map(ind => `<div class="bg-green-50 p-2 rounded text-gray-500"><p class="text-sm line-through">${ind.text}</p><p class="text-xs text-right text-green-800 font-semibold">- Dr/a. ${ind.doctor}</p></div>`).join('')}</div>`;
                     }
@@ -125,11 +124,7 @@
                 
                 let vitalsHTML = '';
                 if(patient.vitals && Object.values(patient.vitals).some(v => v)) {
-                    const vitalsContent = [ 
-                        `TA: ${getTADisplay(patient.vitals)}`, `FC: ${patient.vitals.fc || 'N/A'}`,
-                        `SO2: ${patient.vitals.so2 || 'N/A'}%`, `T°: ${patient.vitals.temp || 'N/A'}`, 
-                        `HGT: ${patient.vitals.hgt || 'N/A'}` 
-                    ].filter(Boolean).join(' | ');
+                    const vitalsContent = [ `TA: ${getTADisplay(patient.vitals)}`, `FC: ${patient.vitals.fc || 'N/A'}`, `SO2: ${patient.vitals.so2 || 'N/A'}%`, `T°: ${patient.vitals.temp || 'N/A'}`, `HGT: ${patient.vitals.hgt || 'N/A'}` ].filter(Boolean).join(' | ');
                     vitalsHTML = `<div class="mt-2 text-xs text-gray-600">${vitalsContent}</div>`;
                 }
                 
@@ -170,7 +165,6 @@
                 return patientCard;
             }
 
-            // --- Rendering & Event Handlers ---
             function renderAllLists(patients) {
                 allPatients = patients;
                 const patientsForNursing = allPatients.filter(p => 
