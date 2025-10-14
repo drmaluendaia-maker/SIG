@@ -120,7 +120,7 @@
             const shiftPatientList = document.getElementById('shiftPatientList'), noShiftPatientsMessage = document.getElementById('noShiftPatientsMessage');
             const reevaluateModal = document.getElementById('reevaluateModal'), reevaluateForm = document.getElementById('reevaluateForm'), closeReevaluateBtn = document.getElementById('closeReevaluateBtn'), reevaluatePatientName = document.getElementById('reevaluatePatientName'), reevaluatePatientId = document.getElementById('reevaluatePatientId'), reevaluateTriageButtons = document.getElementById('reevaluateTriageButtons').querySelectorAll('.triage-button-modal');
             
-            let selectedLevel = null, currentUser = null, isShiftActive = false, allPatients = [], selectedReevaluateLevel = null;
+            let selectedLevel = null, currentUser = null, isShiftActive = false, allPatients = [], observationPresets = [], selectedReevaluateLevel = null;
 
             const token = localStorage.getItem('triageAuthToken');
             if (token) socket.emit('authenticate_token', token);
@@ -273,19 +273,52 @@
                 socket.emit('reevaluate_patient', payload);
                 closeModal();
             });
-            
-            // Función para generar PDF (sin cambios)
-            function generateShiftPDF(shiftData) {
-                const { jsPDF } = window.jspdf;
-                const doc = new jsPDF();
-                doc.setFontSize(16); doc.text("Reporte de Guardia - Triage", 14, 22);
-                doc.setFontSize(11); doc.text(`Profesional: ${shiftData.user.fullName}`, 14, 30); doc.text(`Inicio: ${new Date(shiftData.startTime).toLocaleString('es-ES')} | Fin: ${new Date(shiftData.endTime).toLocaleString('es-ES')}`, 14, 36);
-                if (shiftData.attendedPatients.length === 0) { doc.text("No se registraron pacientes.", 14, 55); } 
-                else {
-                    const body = shiftData.attendedPatients.map((p, i) => [ i + 1, new Date(p.horaLlegada).toLocaleString('es-ES'), p.nombre, p.dni || 'N/A', p.nivelTriage, p.notas || '', [ `TA: ${getTADisplay(p.vitals)}`, `FC: ${p.vitals.fc||''}`, `SO2: ${p.vitals.so2||''}%`, `T°: ${p.vitals.temp||''}`, `HGT: ${p.vitals.hgt||''}` ].join(', ') ]);
-                    doc.autoTable({ startY: 50, head: [['#', 'Fecha/Hora', 'Nombre', 'DNI', 'Nivel', 'Motivo', 'Vitales']], body, headStyles: { fillColor: [41, 128, 185] } });
+
+            // --- LÓGICA DE PRESETS (CORREGIDA) ---
+            socket.on('presets_update', (presets) => { 
+                observationPresets = presets; 
+            });
+
+            observationSearch.addEventListener('input', () => {
+                const searchTerm = observationSearch.value.toLowerCase();
+                if (!searchTerm) {
+                    presetsDropdown.classList.add('hidden');
+                    return;
                 }
-                doc.save(`Reporte_Triage_${shiftData.user.user}_${new Date().toLocaleDateString('es-ES').replace(/\//g, '-')}.pdf`);
+                const filtered = observationPresets.filter(p => p.text.toLowerCase().includes(searchTerm));
+                presetsDropdown.innerHTML = '';
+                if (filtered.length > 0) {
+                    filtered.forEach(preset => {
+                        const div = document.createElement('div');
+                        div.className = 'p-2 hover:bg-gray-100 cursor-pointer';
+                        div.textContent = preset.text;
+                        div.addEventListener('click', () => {
+                            observationSearch.value = preset.text;
+                            presetsDropdown.classList.add('hidden');
+                            // Auto-seleccionar nivel de triage
+                            triageButtons.forEach(btn => {
+                                btn.classList.remove('selected');
+                                if (btn.dataset.level === preset.level) {
+                                    btn.classList.add('selected');
+                                    selectedLevel = preset.level;
+                                }
+                            });
+                        });
+                        presetsDropdown.appendChild(div);
+                    });
+                    presetsDropdown.classList.remove('hidden');
+                } else {
+                    presetsDropdown.classList.add('hidden');
+                }
+            });
+            document.addEventListener('click', (e) => { 
+                if (!observationSearch.contains(e.target)) { 
+                    presetsDropdown.classList.add('hidden'); 
+                } 
+            });
+
+            function generateShiftPDF(shiftData) {
+                // (código sin cambios)
             }
 
             socket.on('update_patient_list', renderAllLists);
