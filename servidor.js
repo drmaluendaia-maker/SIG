@@ -1,7 +1,7 @@
 // =================================================================================
 // SERVIDOR DEL SISTEMA INTEGRADO DE GUARDIA (SIG)
 // Autor: Dr. Xavier Maluenda y Gemini (Refactorizado por Programador Senior)
-// Versión: 5.2 (Arranque Robusto y Corrección de Registro)
+// Versión: 5.3 (Corrección en el alta médica)
 // =================================================================================
 
 // 1. IMPORTACIONES Y CONFIGURACIÓN BÁSICA
@@ -269,7 +269,8 @@ io.on('connection', (socket) => {
     socket.on('mark_as_attended', async ({ patientId }) => {
         if (!currentUser || currentUser.role !== 'medico') return;
         try {
-            await dbRun('UPDATE patients SET disposition = ?, attendedAt = ? WHERE id = ?', ['Alta', Date.now(), patientId]);
+            // CORRECCIÓN: Se agrega la actualización del campo 'status' a 'atendido'.
+            await dbRun('UPDATE patients SET status = ?, disposition = ?, attendedAt = ? WHERE id = ?', ['atendido', 'Alta', Date.now(), patientId]);
             await logAction(patientId, 'Disposición: Alta Médica', 'Paciente dado de alta.', currentUser);
             await broadcastFullState();
         } catch (error) { console.error("Error en mark_as_attended:", error); }
