@@ -1,7 +1,7 @@
 // =================================================================================
 // SERVIDOR DEL SISTEMA INTEGRADO DE GUARDIA (SIG)
 // Autor: Dr. Xavier Maluenda y Gemini (Refactorizado por Programador Senior)
-// Versión: 5.3 (Corrección en el alta médica)
+// Versión: 5.4 (Registro de Paciente Robusto)
 // =================================================================================
 
 // 1. IMPORTACIONES Y CONFIGURACIÓN BÁSICA
@@ -195,16 +195,32 @@ io.on('connection', (socket) => {
     socket.on('register_patient', async (newPatient) => {
         if (!currentUser || currentUser.role !== 'registro') return;
         try {
+            // Se crea el primer log del paciente antes de insertarlo
+            const initialLog = [];
+            initialLog.push({ 
+                id: crypto.randomUUID(), 
+                timestamp: Date.now(), 
+                type: 'Registro', 
+                user: currentUser.fullName, 
+                details: `Motivo: ${newPatient.notas}` 
+            });
+
+            // Se inserta el paciente con su log inicial en una sola operación
             const { lastID } = await dbRun(
                 `INSERT INTO patients (nombre, dni, vitals, notas, nivelTriage, ordenTriage, horaLlegada, status, registeredBy, log, indications)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     newPatient.nombre, newPatient.dni, JSON.stringify(newPatient.vitals),
                     newPatient.notas, newPatient.nivelTriage, newPatient.ordenTriage,
-                    newPatient.horaLlegada, 'en_espera', currentUser.user, '[]', '[]'
+                    newPatient.horaLlegada, 'en_espera', currentUser.user, JSON.stringify(initialLog), '[]'
                 ]
             );
-            await logAction(lastID, 'Registro', `Motivo: ${newPatient.notas}`, currentUser);
+
+            // Si hay una guardia activa, se añade el paciente al registro de esa guardia
+            if (activeShifts[currentUser.user]) {
+                activeShifts[currentUser.user].managedPatientIds.add(lastID);
+            }
+            
             await broadcastFullState();
         } catch (error) {
             console.error("ERROR CRÍTICO en register_patient:", error);
@@ -269,7 +285,6 @@ io.on('connection', (socket) => {
     socket.on('mark_as_attended', async ({ patientId }) => {
         if (!currentUser || currentUser.role !== 'medico') return;
         try {
-            // CORRECCIÓN: Se agrega la actualización del campo 'status' a 'atendido'.
             await dbRun('UPDATE patients SET status = ?, disposition = ?, attendedAt = ? WHERE id = ?', ['atendido', 'Alta', Date.now(), patientId]);
             await logAction(patientId, 'Disposición: Alta Médica', 'Paciente dado de alta.', currentUser);
             await broadcastFullState();
@@ -439,3 +454,4 @@ const main = () => {
 };
 
 main();
+
